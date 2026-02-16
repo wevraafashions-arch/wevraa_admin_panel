@@ -11,12 +11,18 @@ import { Button } from './ui/button';
 
 export function Header() {
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
 
   const handleLogout = () => {
     logout();
     navigate('/login', { replace: true });
   };
+
+  const displayName =
+    (user?.firstName && user?.lastName
+      ? `${user.firstName} ${user.lastName}`.trim()
+      : user?.firstName || user?.lastName) || user?.email || 'Admin User';
+  const displayRole = user?.role || 'Administrator';
 
   return (
     <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 md:px-6 py-4">
@@ -55,26 +61,28 @@ export function Header() {
           </Button>
 
           <div className="flex items-center gap-3 pl-2 md:pl-4 border-l border-gray-200 dark:border-gray-700">
-            <div className="text-right hidden md:block">
-              <p className="text-sm font-medium text-gray-900 dark:text-white">
-                Admin User
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Administrator
-              </p>
-            </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="w-10 h-10 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center"
+                <button
+                  type="button"
+                  className="flex items-center gap-2 md:gap-3 p-1.5 md:pr-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg min-w-0 outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                   aria-label="Profile menu"
+                  aria-haspopup="menu"
                 >
-                  <User className="w-5 h-5 text-white" />
-                </Button>
+                  <span className="w-10 h-10 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center flex-shrink-0">
+                    <User className="w-5 h-5 text-white" />
+                  </span>
+                  <div className="text-left hidden md:block">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate max-w-[140px]">
+                      {displayName}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {displayRole}
+                    </p>
+                  </div>
+                </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuContent align="end" sideOffset={8} className="w-48 z-[100] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-lg">
                 <DropdownMenuItem onClick={() => navigate('/users')}>
                   <User className="w-4 h-4 mr-2" />
                   Users & Roles

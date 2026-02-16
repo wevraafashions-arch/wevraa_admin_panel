@@ -41,6 +41,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     clearAllCookies();
+    try {
+      localStorage.clear();
+    } catch {
+      // ignore if localStorage is unavailable (e.g. private mode)
+    }
     setUser(null);
     setError(null);
   }, []);
