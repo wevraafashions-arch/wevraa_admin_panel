@@ -1,25 +1,27 @@
-import { Plus, Search, Filter, Star, TrendingUp, DollarSign, Package, Eye } from 'lucide-react';
+import { Plus, Search, Star, TrendingUp, DollarSign, Package, Eye } from 'lucide-react';
 import { useState } from 'react';
 import { useVendors } from '@/contexts/VendorContext';
+import type { CreateVendorRequest, UpdateVendorRequest } from '../../api/types/vendor';
 import { AddVendorModal } from '../AddVendorModal';
 
 export function VendorsPage() {
-  const { vendors, addVendor, updateVendor, deleteVendor } = useVendors();
+  const { vendors, loading, error, refetch, addVendor, updateVendor, deleteVendor } = useVendors();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [editingVendor, setEditingVendor] = useState<typeof vendors[0] | null>(null);
-  const [selectedVendor, setSelectedVendor] = useState<typeof vendors[0] | null>(null);
+  const [editingVendor, setEditingVendor] = useState<(typeof vendors)[0] | null>(null);
+  const [selectedVendor, setSelectedVendor] = useState<(typeof vendors)[0] | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'All' | 'Active' | 'Inactive'>('All');
 
-  const filteredVendors = vendors.filter(vendor => {
-    const matchesSearch = vendor.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          vendor.companyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          vendor.category.toLowerCase().includes(searchTerm.toLowerCase());
+  const filteredVendors = vendors.filter((vendor) => {
+    const matchesSearch =
+      vendor.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      vendor.companyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      vendor.category.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = filterStatus === 'All' || vendor.status === filterStatus;
     return matchesSearch && matchesStatus;
   });
 
-  const handleEdit = (vendor: typeof vendors[0]) => {
+  const handleEdit = (vendor: (typeof vendors)[0]) => {
     setEditingVendor(vendor);
     setIsAddModalOpen(true);
   };
@@ -29,15 +31,15 @@ export function VendorsPage() {
     setEditingVendor(null);
   };
 
-  const handleSave = (vendorData: Omit<typeof vendors[0], 'id'>) => {
+  const handleSave = async (data: CreateVendorRequest | UpdateVendorRequest) => {
     if (editingVendor) {
-      updateVendor(editingVendor.id, vendorData);
+      await updateVendor(editingVendor.id, data);
     } else {
-      addVendor(vendorData);
+      await addVendor(data as CreateVendorRequest);
     }
   };
 
-  const handleDelete = (id: number) => {
+  const handleDelete = (id: string) => {
     if (confirm('Are you sure you want to delete this vendor?')) {
       deleteVendor(id);
     }
@@ -58,7 +60,7 @@ export function VendorsPage() {
           <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">Vendor Management</h2>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Manage your supplier network</p>
         </div>
-        <button 
+        <button
           onClick={() => setIsAddModalOpen(true)}
           className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
         >
@@ -66,6 +68,19 @@ export function VendorsPage() {
           Add Vendor
         </button>
       </div>
+
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 px-4 py-3 rounded-lg flex justify-between items-center">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            className="text-red-600 dark:text-red-400 hover:underline font-medium"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -157,28 +172,33 @@ export function VendorsPage() {
 
         {/* Vendors Table */}
         <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 dark:bg-gray-700">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Vendor</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Category</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Contact</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Location</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Rating</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Orders</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-              {filteredVendors.length === 0 ? (
+          {loading ? (
+            <div className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+              <p>Loading vendors...</p>
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
-                    <Package className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                    <p>No vendors found</p>
-                  </td>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Vendor</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Category</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Contact</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Location</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Rating</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Orders</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
                 </tr>
-              ) : (
+              </thead>
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                {filteredVendors.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                      <Package className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                      <p>No vendors found</p>
+                    </td>
+                  </tr>
+                ) : (
                 filteredVendors.map((vendor) => (
                   <tr key={vendor.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                     <td className="px-6 py-4">
@@ -252,9 +272,10 @@ export function VendorsPage() {
                     </td>
                   </tr>
                 ))
-              )}
-            </tbody>
-          </table>
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 

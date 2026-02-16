@@ -1,31 +1,81 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+  type ReactNode,
+} from 'react';
+import { clearAllCookies, tokenCookies, userCookie } from '../api/cookies';
+import { authService } from '../api/services/authService';
+import type { ApiUser } from '../api/types/auth';
 
 interface AuthContextType {
   isAuthenticated: boolean;
-  login: (email: string, password: string) => void;
+  user: ApiUser | null;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  error: string | null;
+  clearError: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return localStorage.getItem('wevraa_admin_authenticated') === 'true';
-  });
+function parseUser(): ApiUser | null {
+  try {
+    const raw = userCookie.get();
+    if (!raw) return null;
+    return JSON.parse(raw) as ApiUser;
+  } catch {
+    return null;
+  }
+}
 
-  const login = useCallback((_email: string, _password: string) => {
-    // Demo: accept any non-empty credentials
-    setIsAuthenticated(true);
-    localStorage.setItem('wevraa_admin_authenticated', 'true');
-  }, []);
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<ApiUser | null>(() => parseUser());
+  const [error, setError] = useState<string | null>(null);
+
+  const hasTokens =
+    !!tokenCookies.getAccessToken() || !!tokenCookies.getRefreshToken();
+  const isAuthenticated = hasTokens || !!user;
 
   const logout = useCallback(() => {
-    setIsAuthenticated(false);
-    localStorage.removeItem('wevraa_admin_authenticated');
+    clearAllCookies();
+    setUser(null);
+    setError(null);
   }, []);
 
+  const login = useCallback(async (email: string, password: string) => {
+    setError(null);
+    try {
+      const res = await authService.login({ email, password });
+      setUser(res.user);
+    } catch (e: unknown) {
+      const message =
+        e && typeof e === 'object' && 'message' in e
+          ? String((e as { message: string }).message)
+          : 'Login failed. Please check your credentials.';
+      setError(message);
+      throw e;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hasTokens && user) setUser(null);
+    if (hasTokens && !user) setUser(parseUser());
+  }, [hasTokens, user]);
+
   return (
-    <AuthContext.Provider value={{ isAuthenticated, login, logout }}>
+    <AuthContext.Provider
+      value={{
+        isAuthenticated,
+        user,
+        login,
+        logout,
+        error,
+        clearError: () => setError(null),
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

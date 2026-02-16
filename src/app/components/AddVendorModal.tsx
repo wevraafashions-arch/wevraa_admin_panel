@@ -1,25 +1,16 @@
 import { X } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Vendor } from '@/contexts/VendorContext';
+import type { CreateVendorRequest, UpdateVendorRequest } from '../api/types/vendor';
+import { categoriesService } from '../api/services/categoriesService';
+import type { Category } from '../api/types/category';
 
 interface AddVendorModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (vendor: Omit<Vendor, 'id'>) => void;
+  onSave: (data: CreateVendorRequest | UpdateVendorRequest) => void | Promise<void>;
   editingVendor?: Vendor | null;
 }
-
-const vendorCategories = [
-  'Fabric Supplier',
-  'Silk Supplier',
-  'Thread Supplier',
-  'Embroidery Work',
-  'Accessories Supplier',
-  'Button Supplier',
-  'Zipper Supplier',
-  'Packaging Supplier',
-  'Other'
-];
 
 const indianStates = [
   'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
@@ -30,7 +21,38 @@ const indianStates = [
   'Delhi', 'Jammu and Kashmir', 'Ladakh'
 ];
 
+function buildPayload(formData: {
+  name: string;
+  companyName: string;
+  email: string;
+  phone: string;
+  address: string;
+  city: string;
+  state: string;
+  pincode: string;
+  gstin: string;
+  categoryId: string;
+  status: 'Active' | 'Inactive';
+  joinedDate: string;
+}): CreateVendorRequest {
+  return {
+    contactPersonName: formData.name,
+    companyName: formData.companyName,
+    email: formData.email,
+    phone: formData.phone,
+    categoryId: formData.categoryId || null,
+    gstin: formData.gstin || '',
+    status: formData.status === 'Active' ? 'ACTIVE' : 'INACTIVE',
+    joinedDate: formData.joinedDate,
+    address: formData.address,
+    city: formData.city,
+    state: formData.state,
+    pincode: formData.pincode,
+  };
+}
+
 export function AddVendorModal({ isOpen, onClose, onSave, editingVendor }: AddVendorModalProps) {
+  const [categories, setCategories] = useState<Category[]>([]);
   const [formData, setFormData] = useState({
     name: '',
     companyName: '',
@@ -41,16 +63,22 @@ export function AddVendorModal({ isOpen, onClose, onSave, editingVendor }: AddVe
     state: '',
     pincode: '',
     gstin: '',
-    category: '',
-    rating: 0,
+    categoryId: '',
     status: 'Active' as 'Active' | 'Inactive',
-    totalOrders: 0,
-    totalAmount: 0,
-    joinedDate: new Date().toISOString().split('T')[0]
+    joinedDate: new Date().toISOString().split('T')[0],
   });
+  const [submitting, setSubmitting] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!isOpen) return;
+    categoriesService.getList().then(setCategories).catch(() => setCategories([]));
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
     if (editingVendor) {
+      const match = categories.find((c) => c.name === editingVendor.category);
       setFormData({
         name: editingVendor.name,
         companyName: editingVendor.companyName,
@@ -61,12 +89,9 @@ export function AddVendorModal({ isOpen, onClose, onSave, editingVendor }: AddVe
         state: editingVendor.state,
         pincode: editingVendor.pincode,
         gstin: editingVendor.gstin || '',
-        category: editingVendor.category,
-        rating: editingVendor.rating,
+        categoryId: match?.id ?? '',
         status: editingVendor.status,
-        totalOrders: editingVendor.totalOrders || 0,
-        totalAmount: editingVendor.totalAmount || 0,
-        joinedDate: editingVendor.joinedDate
+        joinedDate: editingVendor.joinedDate,
       });
     } else {
       setFormData({
@@ -79,20 +104,31 @@ export function AddVendorModal({ isOpen, onClose, onSave, editingVendor }: AddVe
         state: '',
         pincode: '',
         gstin: '',
-        category: '',
-        rating: 0,
+        categoryId: '',
         status: 'Active',
-        totalOrders: 0,
-        totalAmount: 0,
-        joinedDate: new Date().toISOString().split('T')[0]
+        joinedDate: new Date().toISOString().split('T')[0],
       });
     }
-  }, [editingVendor, isOpen]);
+    setSaveError(null);
+  }, [editingVendor, isOpen, categories]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(formData);
-    onClose();
+    setSubmitting(true);
+    setSaveError(null);
+    try {
+      const payload = buildPayload(formData);
+      await onSave(payload);
+      onClose();
+    } catch (err) {
+      const message =
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as { message: string }).message)
+          : 'Failed to save vendor';
+      setSaveError(message);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -115,6 +151,11 @@ export function AddVendorModal({ isOpen, onClose, onSave, editingVendor }: AddVe
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
+          {saveError && (
+            <div className="mb-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 text-sm">
+              {saveError}
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Personal Information */}
             <div className="md:col-span-2">
@@ -188,17 +229,18 @@ export function AddVendorModal({ isOpen, onClose, onSave, editingVendor }: AddVe
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Category *
+                Category
               </label>
               <select
-                required
-                value={formData.category}
-                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                value={formData.categoryId}
+                onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               >
-                <option value="">Select Category</option>
-                {vendorCategories.map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
+                <option value="">Select Category (optional)</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.name}
+                  </option>
                 ))}
               </select>
             </div>
@@ -290,8 +332,10 @@ export function AddVendorModal({ isOpen, onClose, onSave, editingVendor }: AddVe
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               >
                 <option value="">Select State</option>
-                {indianStates.map(state => (
-                  <option key={state} value={state}>{state}</option>
+                {indianStates.map((state) => (
+                  <option key={state} value={state}>
+                    {state}
+                  </option>
                 ))}
               </select>
             </div>
@@ -316,15 +360,17 @@ export function AddVendorModal({ isOpen, onClose, onSave, editingVendor }: AddVe
             <button
               type="button"
               onClick={onClose}
-              className="px-6 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              disabled={submitting}
+              className="px-6 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              disabled={submitting}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {editingVendor ? 'Update Vendor' : 'Add Vendor'}
+              {submitting ? 'Saving...' : editingVendor ? 'Update Vendor' : 'Add Vendor'}
             </button>
           </div>
         </form>

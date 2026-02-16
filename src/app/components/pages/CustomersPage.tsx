@@ -1,8 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Plus, Search, Mail, Phone, Edit, Trash2, X, Eye, ShoppingBag, IndianRupee } from 'lucide-react';
+import { customerService } from '../../api/services/customerService';
+import type { ApiCustomer } from '../../api/types/customer';
+import type { CreateCustomerRequest, UpdateCustomerRequest } from '../../api/types/customer';
 
+/** UI customer (mapped from API); id is string for API */
 interface Customer {
-  id: number;
+  id: string;
   name: string;
   email: string;
   phone: string;
@@ -10,42 +14,95 @@ interface Customer {
   totalSpent: string;
   status: 'Active' | 'VIP' | 'New';
   address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
   joinDate?: string;
 }
+
+function normalizeStatus(apiStatus: string): Customer['status'] {
+  const s = (apiStatus || '').toUpperCase();
+  if (s === 'VIP') return 'VIP';
+  if (s === 'ACTIVE') return 'Active';
+  return 'New';
+}
+
+function mapApiCustomerToCustomer(api: ApiCustomer): Customer {
+  const addr = api.address;
+  return {
+    id: api.id,
+    name: api.name,
+    email: api.email,
+    phone: api.phone,
+    orders: 0,
+    totalSpent: '—',
+    status: normalizeStatus(api.status),
+    address: addr?.address,
+    city: addr?.city,
+    state: addr?.state,
+    pincode: addr?.pincode,
+    joinDate: api.createdAt?.split('T')[0],
+  };
+}
+
+function getCustomerAddressLine(c: Customer): string {
+  return [c.address, c.city, c.state, c.pincode].filter(Boolean).join(', ') || '—';
+}
+
+const INDIAN_STATES = [
+  'Andhra Pradesh', 'Bihar', 'Delhi', 'Goa', 'Gujarat', 'Haryana', 'Karnataka',
+  'Kerala', 'Maharashtra', 'Tamil Nadu', 'Telangana', 'Uttar Pradesh', 'West Bengal',
+];
 
 export function CustomersPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
-  const [editingCustomerId, setEditingCustomerId] = useState<number | null>(null);
+  const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const [customerForm, setCustomerForm] = useState({
     name: '',
     email: '',
     phone: '',
     address: '',
+    city: '',
+    state: '',
+    pincode: '',
     status: 'New' as Customer['status'],
   });
 
-  const [customers, setCustomers] = useState<Customer[]>([
-    { id: 1, name: 'Rajesh Kumar', email: 'rajesh.kumar@email.com', phone: '+91 98765-43210', orders: 12, totalSpent: '₹54,300', status: 'Active', address: 'T. Nagar, Chennai, Tamil Nadu', joinDate: '2023-06-15' },
-    { id: 2, name: 'Priya Sharma', email: 'priya.sharma@email.com', phone: '+91 98765-43211', orders: 8, totalSpent: '₹32,100', status: 'Active', address: 'Adyar, Chennai, Tamil Nadu', joinDate: '2023-08-22' },
-    { id: 3, name: 'Amit Patel', email: 'amit.patel@email.com', phone: '+91 98765-43212', orders: 5, totalSpent: '₹18,900', status: 'Active', address: 'Mylapore, Chennai, Tamil Nadu', joinDate: '2024-01-05' },
-    { id: 4, name: 'Sneha Reddy', email: 'sneha.reddy@email.com', phone: '+91 98765-43213', orders: 15, totalSpent: '₹76,500', status: 'VIP', address: 'Velachery, Chennai, Tamil Nadu', joinDate: '2023-03-10' },
-    { id: 5, name: 'Vikram Singh', email: 'v.singh@email.com', phone: '+91 98765-43214', orders: 3, totalSpent: '₹9,800', status: 'Active', address: 'Anna Nagar, Chennai, Tamil Nadu', joinDate: '2024-01-10' },
-    { id: 6, name: 'Ananya Desai', email: 'ananya.d@email.com', phone: '+91 98765-43215', orders: 20, totalSpent: '₹93,400', status: 'VIP', address: 'Nungambakkam, Chennai, Tamil Nadu', joinDate: '2023-01-20' },
-    { id: 7, name: 'Arjun Mehta', email: 'arjun.m@email.com', phone: '+91 98765-43216', orders: 1, totalSpent: '₹4,500', status: 'New', address: 'Porur, Chennai, Tamil Nadu', joinDate: '2024-01-12' },
-    { id: 8, name: 'Kavya Iyer', email: 'kavya.iyer@email.com', phone: '+91 98765-43217', orders: 7, totalSpent: '₹27,800', status: 'Active', address: 'Guindy, Chennai, Tamil Nadu', joinDate: '2023-11-18' },
-    { id: 9, name: 'Rahul Verma', email: 'rahul.v@email.com', phone: '+91 98765-43218', orders: 11, totalSpent: '₹48,200', status: 'Active', address: 'Tambaram, Chennai, Tamil Nadu', joinDate: '2023-07-05' },
-    { id: 10, name: 'Deepika Nair', email: 'deepika.nair@email.com', phone: '+91 98765-43219', orders: 18, totalSpent: '₹82,600', status: 'VIP', address: 'Chromepet, Chennai, Tamil Nadu', joinDate: '2023-02-14' },
-  ]);
+  const fetchCustomers = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const list = await customerService.getList();
+      setCustomers(list.map(mapApiCustomerToCustomer));
+    } catch (e) {
+      const message =
+        e && typeof e === 'object' && 'message' in e
+          ? String((e as { message: string }).message)
+          : 'Failed to load customers';
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const filteredCustomers = customers.filter(customer =>
-    customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.phone.includes(searchTerm)
+  useEffect(() => {
+    fetchCustomers();
+  }, [fetchCustomers]);
+
+  const filteredCustomers = customers.filter(
+    (customer) =>
+      customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      customer.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      customer.phone.includes(searchTerm)
   );
 
   const resetForm = () => {
@@ -54,47 +111,64 @@ export function CustomersPage() {
       email: '',
       phone: '',
       address: '',
+      city: '',
+      state: '',
+      pincode: '',
       status: 'New',
     });
     setIsEditMode(false);
     setEditingCustomerId(null);
   };
 
-  const handleAddCustomer = (e: React.FormEvent) => {
-    e.preventDefault();
-    const newCustomer: Customer = {
-      id: Math.max(...customers.map(c => c.id)) + 1,
-      name: customerForm.name,
-      email: customerForm.email,
-      phone: customerForm.phone,
-      orders: 0,
-      totalSpent: '₹0',
-      status: customerForm.status,
-      address: customerForm.address,
-      joinDate: new Date().toISOString().split('T')[0],
-    };
-    setCustomers([...customers, newCustomer]);
-    setShowAddModal(false);
-    resetForm();
-  };
+  const buildPayload = (): CreateCustomerRequest => ({
+    name: customerForm.name,
+    email: customerForm.email,
+    phone: customerForm.phone,
+    status: customerForm.status === 'New' ? 'NEW' : customerForm.status === 'VIP' ? 'VIP' : 'ACTIVE',
+    address: customerForm.address,
+    city: customerForm.city,
+    state: customerForm.state,
+    pincode: customerForm.pincode,
+  });
 
-  const handleEditCustomer = (e: React.FormEvent) => {
+  const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingCustomerId) {
-      setCustomers(customers.map(cust =>
-        cust.id === editingCustomerId
-          ? {
-              ...cust,
-              name: customerForm.name,
-              email: customerForm.email,
-              phone: customerForm.phone,
-              status: customerForm.status,
-              address: customerForm.address,
-            }
-          : cust
-      ));
+    setSubmitting(true);
+    try {
+      const created = await customerService.create(buildPayload());
+      setCustomers((prev) => [mapApiCustomerToCustomer(created), ...prev]);
       setShowAddModal(false);
       resetForm();
+    } catch (e) {
+      const message =
+        e && typeof e === 'object' && 'message' in e
+          ? String((e as { message: string }).message)
+          : 'Failed to add customer';
+      setError(message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleEditCustomer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCustomerId) return;
+    setSubmitting(true);
+    try {
+      const updated = await customerService.update(editingCustomerId, buildPayload());
+      setCustomers((prev) =>
+        prev.map((c) => (c.id === editingCustomerId ? mapApiCustomerToCustomer(updated) : c))
+      );
+      setShowAddModal(false);
+      resetForm();
+    } catch (e) {
+      const message =
+        e && typeof e === 'object' && 'message' in e
+          ? String((e as { message: string }).message)
+          : 'Failed to update customer';
+      setError(message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -105,15 +179,18 @@ export function CustomersPage() {
       name: customer.name,
       email: customer.email,
       phone: customer.phone,
-      address: customer.address || '',
+      address: customer.address ?? '',
+      city: customer.city ?? '',
+      state: customer.state ?? '',
+      pincode: customer.pincode ?? '',
       status: customer.status,
     });
     setShowAddModal(true);
   };
 
-  const handleDeleteCustomer = (customerId: number) => {
+  const handleDeleteCustomer = (customerId: string) => {
     if (confirm('Are you sure you want to delete this customer?')) {
-      setCustomers(customers.filter(cust => cust.id !== customerId));
+      setCustomers((prev) => prev.filter((c) => c.id !== customerId));
     }
   };
 
@@ -145,6 +222,15 @@ export function CustomersPage() {
           Add Customer
         </button>
       </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex justify-between items-center">
+          <span>{error}</span>
+          <button type="button" onClick={() => setError(null)} className="text-red-600 hover:underline font-medium">
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -182,19 +268,22 @@ export function CustomersPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Orders</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Spent</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredCustomers.map((customer) => (
+          {loading ? (
+            <div className="p-12 text-center text-gray-500">Loading customers...</div>
+          ) : (
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer Name</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Orders</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Spent</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredCustomers.map((customer) => (
                 <tr key={customer.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">{customer.name}</div>
@@ -250,16 +339,16 @@ export function CustomersPage() {
                     </div>
                   </td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {!loading && filteredCustomers.length === 0 && (
+            <div className="p-12 text-center">
+              <p className="text-gray-500">No customers found</p>
+            </div>
+          )}
         </div>
-
-        {filteredCustomers.length === 0 && (
-          <div className="p-12 text-center">
-            <p className="text-gray-500">No customers found</p>
-          </div>
-        )}
       </div>
 
       {/* Add/Edit Customer Modal */}
@@ -322,16 +411,59 @@ export function CustomersPage() {
                   />
                 </div>
               </div>
-              <div>
+              <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Address
+                  Address *
                 </label>
                 <textarea
                   rows={2}
+                  required
                   value={customerForm.address}
                   onChange={(e) => setCustomerForm({ ...customerForm, address: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Complete address"
+                  placeholder="Street address"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  City *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={customerForm.city}
+                  onChange={(e) => setCustomerForm({ ...customerForm, city: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="City"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  State *
+                </label>
+                <select
+                  required
+                  value={customerForm.state}
+                  onChange={(e) => setCustomerForm({ ...customerForm, state: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">Select state</option>
+                  {INDIAN_STATES.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Pincode *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={customerForm.pincode}
+                  onChange={(e) => setCustomerForm({ ...customerForm, pincode: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="e.g. 400001"
                 />
               </div>
               <div>
@@ -355,15 +487,17 @@ export function CustomersPage() {
                     setShowAddModal(false);
                     resetForm();
                   }}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isEditMode ? 'Update Customer' : 'Add Customer'}
+                  {submitting ? 'Saving...' : isEditMode ? 'Update Customer' : 'Add Customer'}
                 </button>
               </div>
             </form>
@@ -412,12 +546,10 @@ export function CustomersPage() {
                     <p className="text-sm text-gray-600">Phone</p>
                     <p className="text-gray-900">{selectedCustomer.phone}</p>
                   </div>
-                  {selectedCustomer.address && (
-                    <div className="md:col-span-2">
-                      <p className="text-sm text-gray-600">Address</p>
-                      <p className="text-gray-900">{selectedCustomer.address}</p>
-                    </div>
-                  )}
+                  <div className="md:col-span-2">
+                    <p className="text-sm text-gray-600">Address</p>
+                    <p className="text-gray-900">{getCustomerAddressLine(selectedCustomer)}</p>
+                  </div>
                 </div>
               </div>
               <div>

@@ -1,7 +1,17 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+  type ReactNode,
+} from 'react';
+import { vendorService } from '../app/api/services/vendorService';
+import type { ApiVendor, CreateVendorRequest, UpdateVendorRequest } from '../app/api/types/vendor';
 
+/** UI-facing vendor shape (mapped from API) */
 export interface Vendor {
-  id: number;
+  id: string;
   name: string;
   companyName: string;
   email: string;
@@ -19,141 +29,108 @@ export interface Vendor {
   joinedDate: string;
 }
 
+function mapApiVendorToVendor(api: ApiVendor): Vendor {
+  const status =
+    api.status?.toUpperCase() === 'ACTIVE' ? 'Active' : 'Inactive';
+  return {
+    id: api.id,
+    name: api.contactPersonName,
+    companyName: api.companyName,
+    email: api.email,
+    phone: api.phone,
+    address: api.address?.address ?? '',
+    city: api.address?.city ?? '',
+    state: api.address?.state ?? '',
+    pincode: api.address?.pincode ?? '',
+    gstin: api.gstin || undefined,
+    category: api.category?.name ?? '',
+    rating: 0,
+    status,
+    totalOrders: 0,
+    totalAmount: 0,
+    joinedDate: api.joinedDate?.split('T')[0] ?? '',
+  };
+}
+
 interface VendorContextType {
   vendors: Vendor[];
-  addVendor: (vendor: Omit<Vendor, 'id'>) => void;
-  updateVendor: (id: number, vendor: Partial<Vendor>) => void;
-  deleteVendor: (id: number) => void;
-  getVendorById: (id: number) => Vendor | undefined;
+  loading: boolean;
+  error: string | null;
+  refetch: () => Promise<void>;
+  addVendor: (data: CreateVendorRequest) => Promise<void>;
+  updateVendor: (id: string, data: UpdateVendorRequest) => Promise<void>;
+  deleteVendor: (id: string) => void;
+  getVendorById: (id: string) => Vendor | undefined;
   getVendorsByCategory: (category: string) => Vendor[];
 }
 
 const VendorContext = createContext<VendorContextType | undefined>(undefined);
 
-const mockVendors: Vendor[] = [
-  {
-    id: 1,
-    name: 'Rajesh Kumar',
-    companyName: 'Kumar Textiles Pvt Ltd',
-    email: 'rajesh@kumartextiles.com',
-    phone: '+91 98765 43210',
-    address: '123, Textile Market, Gandhi Nagar',
-    city: 'Mumbai',
-    state: 'Maharashtra',
-    pincode: '400001',
-    gstin: 'GST27AABCU9603R1ZV',
-    category: 'Fabric Supplier',
-    rating: 4.5,
-    status: 'Active',
-    totalOrders: 245,
-    totalAmount: 1250000,
-    joinedDate: '2024-03-15'
-  },
-  {
-    id: 2,
-    name: 'Priya Sharma',
-    companyName: 'Elegant Fabrics',
-    email: 'priya@elegantfabrics.com',
-    phone: '+91 98765 43211',
-    address: '456, Silk Road, Nehru Place',
-    city: 'Delhi',
-    state: 'Delhi',
-    pincode: '110019',
-    gstin: 'GST07AABCU9603R1ZX',
-    category: 'Silk Supplier',
-    rating: 4.8,
-    status: 'Active',
-    totalOrders: 189,
-    totalAmount: 980000,
-    joinedDate: '2024-05-20'
-  },
-  {
-    id: 3,
-    name: 'Amit Patel',
-    companyName: 'Patel Embroidery Works',
-    email: 'amit@patelembroidery.com',
-    phone: '+91 98765 43212',
-    address: '789, Craft Colony, Vastrapur',
-    city: 'Ahmedabad',
-    state: 'Gujarat',
-    pincode: '380015',
-    gstin: 'GST24AABCU9603R1ZY',
-    category: 'Embroidery Work',
-    rating: 4.6,
-    status: 'Active',
-    totalOrders: 312,
-    totalAmount: 1560000,
-    joinedDate: '2024-01-10'
-  },
-  {
-    id: 4,
-    name: 'Sunita Reddy',
-    companyName: 'Reddy Buttons & Accessories',
-    email: 'sunita@reddyaccessories.com',
-    phone: '+91 98765 43213',
-    address: '321, Industrial Area, Banjara Hills',
-    city: 'Hyderabad',
-    state: 'Telangana',
-    pincode: '500034',
-    gstin: 'GST36AABCU9603R1ZZ',
-    category: 'Accessories Supplier',
-    rating: 4.3,
-    status: 'Active',
-    totalOrders: 428,
-    totalAmount: 750000,
-    joinedDate: '2023-11-05'
-  },
-  {
-    id: 5,
-    name: 'Vikram Singh',
-    companyName: 'Royal Threads',
-    email: 'vikram@royalthreads.com',
-    phone: '+91 98765 43214',
-    address: '654, Heritage Lane, Civil Lines',
-    city: 'Jaipur',
-    state: 'Rajasthan',
-    pincode: '302006',
-    gstin: 'GST08AABCU9603R1ZW',
-    category: 'Thread Supplier',
-    rating: 4.4,
-    status: 'Inactive',
-    totalOrders: 156,
-    totalAmount: 420000,
-    joinedDate: '2024-07-12'
-  }
-];
-
 export function VendorProvider({ children }: { children: ReactNode }) {
-  const [vendors, setVendors] = useState<Vendor[]>(mockVendors);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const addVendor = (vendor: Omit<Vendor, 'id'>) => {
-    const newVendor: Vendor = {
-      ...vendor,
-      id: Math.max(...vendors.map(v => v.id), 0) + 1,
-    };
-    setVendors([...vendors, newVendor]);
-  };
+  const refetch = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const list = await vendorService.getList();
+      setVendors(list.map(mapApiVendorToVendor));
+    } catch (e) {
+      const message =
+        e && typeof e === 'object' && 'message' in e
+          ? String((e as { message: string }).message)
+          : 'Failed to load vendors';
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const updateVendor = (id: number, updatedVendor: Partial<Vendor>) => {
-    setVendors(vendors.map(v => v.id === id ? { ...v, ...updatedVendor } : v));
-  };
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
 
-  const deleteVendor = (id: number) => {
-    setVendors(vendors.filter(v => v.id !== id));
-  };
+  const addVendor = useCallback(
+    async (data: CreateVendorRequest) => {
+      const created = await vendorService.create(data);
+      setVendors((prev) => [mapApiVendorToVendor(created), ...prev]);
+    },
+    []
+  );
 
-  const getVendorById = (id: number) => {
-    return vendors.find(v => v.id === id);
-  };
+  const updateVendor = useCallback(
+    async (id: string, data: UpdateVendorRequest) => {
+      const updated = await vendorService.update(id, data);
+      setVendors((prev) =>
+        prev.map((v) => (v.id === id ? mapApiVendorToVendor(updated) : v))
+      );
+    },
+    []
+  );
 
-  const getVendorsByCategory = (category: string) => {
-    return vendors.filter(v => v.category === category);
-  };
+  const deleteVendor = useCallback((id: string) => {
+    setVendors((prev) => prev.filter((v) => v.id !== id));
+  }, []);
+
+  const getVendorById = useCallback(
+    (id: string) => vendors.find((v) => v.id === id),
+    [vendors]
+  );
+
+  const getVendorsByCategory = useCallback(
+    (category: string) => vendors.filter((v) => v.category === category),
+    [vendors]
+  );
 
   return (
     <VendorContext.Provider
       value={{
         vendors,
+        loading,
+        error,
+        refetch,
         addVendor,
         updateVendor,
         deleteVendor,

@@ -1,18 +1,21 @@
 import { X, ShoppingCart, Heart, Share2, Star, Package, TrendingUp, Settings } from 'lucide-react';
 import { useState } from 'react';
+import type { Product } from '../api/types/product';
 
-interface Product {
-  id: number;
-  name: string;
-  category: string;
-  price: string;
-  stock: number;
-  status: string;
-  image: string;
-  description?: string;
-  rating?: number;
-  reviews?: number;
-  relatedProductIds?: number[];
+function productImage(p: Product) {
+  return p.media?.[0]?.url ?? 'https://via.placeholder.com/400';
+}
+function productPrice(p: Product) {
+  return p.mrp != null ? `₹${Number(p.mrp).toLocaleString()}` : '—';
+}
+function productStock(p: Product) {
+  return p.quantity != null ? String(p.quantity) : '—';
+}
+function stockStatus(p: Product) {
+  const q = p.quantity ?? 0;
+  if (q === 0) return 'Out of Stock';
+  if (q <= 10) return 'Low Stock';
+  return 'In Stock';
 }
 
 interface ProductDetailModalProps {
@@ -29,22 +32,21 @@ export function ProductDetailModal({ isOpen, onClose, product, allProducts, onPr
 
   if (!isOpen || !product) return null;
 
-  // Get related products based on relatedProductIds if available, otherwise fallback to same category
-  const relatedProducts = product.relatedProductIds && product.relatedProductIds.length > 0
-    ? allProducts.filter(p => product.relatedProductIds!.includes(p.id))
-    : allProducts.filter(p => p.category === product.category && p.id !== product.id).slice(0, 4);
+  const categoryId = product.category?.id ?? product.categoryId;
+  const relatedProducts = allProducts.filter(
+    (p) => p.id !== product.id && (p.category?.id ?? p.categoryId) === categoryId
+  ).slice(0, 4);
 
-  // Mock additional images (in real app, product would have multiple images)
-  const productImages = [
-    product.image,
-    product.image,
-    product.image,
-  ];
+  const images = product.media?.length
+    ? product.media.map((m) => m.url)
+    : [productImage(product)];
 
   const handleRelatedProductClick = (relatedProduct: Product) => {
     onProductClick(relatedProduct);
-    setSelectedImage(0); // Reset image selection
+    setSelectedImage(0);
   };
+
+  const status = stockStatus(product);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -68,15 +70,14 @@ export function ProductDetailModal({ isOpen, onClose, product, allProducts, onPr
               {/* Main Image */}
               <div className="aspect-square bg-gray-100 dark:bg-gray-700 rounded-xl overflow-hidden">
                 <img
-                  src={productImages[selectedImage]}
-                  alt={product.name}
+                  src={images[selectedImage] ?? productImage(product)}
+                  alt={product.title}
                   className="w-full h-full object-cover"
                 />
               </div>
 
-              {/* Image Thumbnails */}
               <div className="flex gap-3">
-                {productImages.map((img, idx) => (
+                {images.map((img, idx) => (
                   <button
                     key={idx}
                     onClick={() => setSelectedImage(idx)}
@@ -97,49 +98,28 @@ export function ProductDetailModal({ isOpen, onClose, product, allProducts, onPr
               {/* Category & Status */}
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="text-sm text-blue-600 dark:text-blue-400 font-medium">
-                  {product.category}
+                  {product.category?.name ?? '—'}
                 </span>
                 <span className={`px-3 py-1 text-xs font-semibold rounded-full ${
-                  product.status === 'In Stock'
+                  status === 'In Stock'
                     ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                    : product.status === 'Low Stock'
+                    : status === 'Low Stock'
                     ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
                     : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
                 }`}>
-                  {product.status}
+                  {status}
                 </span>
               </div>
 
-              {/* Product Name */}
               <div>
                 <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-                  {product.name}
+                  {product.title}
                 </h1>
-
-                {/* Rating */}
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center">
-                    {[...Array(5)].map((_, idx) => (
-                      <Star
-                        key={idx}
-                        className={`w-5 h-5 ${
-                          idx < (product.rating || 4)
-                            ? 'text-yellow-400 fill-yellow-400'
-                            : 'text-gray-300 dark:text-gray-600'
-                        }`}
-                      />
-                    ))}
-                  </div>
-                  <span className="text-sm text-gray-600 dark:text-gray-400">
-                    {product.rating || 4.0} ({product.reviews || 128} reviews)
-                  </span>
-                </div>
               </div>
 
-              {/* Price */}
               <div>
                 <div className="text-4xl font-bold text-gray-900 dark:text-white">
-                  {product.price}
+                  {productPrice(product)}
                 </div>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                   Inclusive of all taxes
@@ -150,38 +130,35 @@ export function ProductDetailModal({ isOpen, onClose, product, allProducts, onPr
               <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
                 <Package className="w-5 h-5" />
                 <span className="text-sm">
-                  <span className="font-semibold">{product.stock}</span> units available
+                  <span className="font-semibold">{productStock(product)}</span> units available
                 </span>
               </div>
 
-              {/* Description */}
               <div>
                 <h3 className="font-semibold text-gray-900 dark:text-white mb-2">Description</h3>
                 <p className="text-gray-600 dark:text-gray-400 text-sm leading-relaxed">
-                  {product.description || 
-                    `Premium quality ${product.name.toLowerCase()} crafted with attention to detail. Perfect for any occasion, this product combines traditional craftsmanship with modern design sensibilities.`}
+                  {product.shortDescription || product.longDescription || `Premium quality ${product.title}.`}
                 </p>
               </div>
 
-              {/* Product Details */}
               <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
                 <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Product Details</h3>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <span className="text-gray-500 dark:text-gray-400">Product ID:</span>
-                    <p className="text-gray-900 dark:text-white font-medium">#{product.id.toString().padStart(4, '0')}</p>
+                    <p className="text-gray-900 dark:text-white font-medium">#{product.id.slice(0, 8)}</p>
                   </div>
                   <div>
                     <span className="text-gray-500 dark:text-gray-400">Category:</span>
-                    <p className="text-gray-900 dark:text-white font-medium">{product.category}</p>
+                    <p className="text-gray-900 dark:text-white font-medium">{product.category?.name ?? '—'}</p>
                   </div>
                   <div>
                     <span className="text-gray-500 dark:text-gray-400">Availability:</span>
-                    <p className="text-gray-900 dark:text-white font-medium">{product.status}</p>
+                    <p className="text-gray-900 dark:text-white font-medium">{status}</p>
                   </div>
                   <div>
                     <span className="text-gray-500 dark:text-gray-400">Stock Units:</span>
-                    <p className="text-gray-900 dark:text-white font-medium">{product.stock}</p>
+                    <p className="text-gray-900 dark:text-white font-medium">{productStock(product)}</p>
                   </div>
                 </div>
               </div>
@@ -242,59 +219,35 @@ export function ProductDetailModal({ isOpen, onClose, product, allProducts, onPr
                     onClick={() => handleRelatedProductClick(relatedProduct)}
                     className="bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg p-4 hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-600 transition-all group text-left"
                   >
-                    {/* Product Image */}
                     <div className="aspect-square bg-gray-100 dark:bg-gray-600 rounded-lg overflow-hidden mb-3">
                       <img
-                        src={relatedProduct.image}
-                        alt={relatedProduct.name}
+                        src={productImage(relatedProduct)}
+                        alt={relatedProduct.title}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                       />
                     </div>
-
-                    {/* Product Info */}
                     <div className="space-y-2">
                       <h3 className="font-semibold text-gray-900 dark:text-white text-sm line-clamp-2 group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                        {relatedProduct.name}
+                        {relatedProduct.title}
                       </h3>
-                      
                       <div className="flex items-center justify-between">
                         <span className="text-lg font-bold text-gray-900 dark:text-white">
-                          {relatedProduct.price}
+                          {productPrice(relatedProduct)}
                         </span>
                         <span className={`text-xs px-2 py-1 rounded-full ${
-                          relatedProduct.status === 'In Stock'
+                          stockStatus(relatedProduct) === 'In Stock'
                             ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                            : relatedProduct.status === 'Low Stock'
+                            : stockStatus(relatedProduct) === 'Low Stock'
                             ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
                             : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
                         }`}>
-                          {relatedProduct.stock}
+                          {productStock(relatedProduct)}
                         </span>
-                      </div>
-
-                      <div className="flex items-center gap-1">
-                        {[...Array(5)].map((_, idx) => (
-                          <Star
-                            key={idx}
-                            className={`w-3 h-3 ${
-                              idx < (relatedProduct.rating || 4)
-                                ? 'text-yellow-400 fill-yellow-400'
-                                : 'text-gray-300 dark:text-gray-600'
-                            }`}
-                          />
-                        ))}
                       </div>
                     </div>
                   </button>
                 ))}
               </div>
-
-              {relatedProducts.length === 0 && (
-                <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-                  <Package className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p>No related products found in this category.</p>
-                </div>
-              )}
             </div>
           )}
         </div>

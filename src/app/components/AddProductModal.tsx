@@ -62,20 +62,17 @@ const QuillEditor = ({ value, onChange }: { value: string; onChange: (value: str
   );
 };
 
+import type { Product, CreateProductRequest, UpdateProductRequest } from '../api/types/product';
+
 interface AddProductModalProps {
   isOpen: boolean;
   onClose: () => void;
-  editingProduct?: {
-    id: number;
-    name: string;
-    category: string;
-    price: string;
-    stock: number;
-    status: string;
-  } | null;
+  editingProduct?: Product | null;
+  onSave?: (payload: CreateProductRequest | (UpdateProductRequest & { id: string })) => void | Promise<void>;
+  isSaving?: boolean;
 }
 
-export function AddProductModal({ isOpen, onClose, editingProduct }: AddProductModalProps) {
+export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSaving = false }: AddProductModalProps) {
   const { vendors } = useVendors();
   
   // Mock collections data (in real app, this would come from a CollectionsContext)
@@ -148,19 +145,42 @@ export function AddProductModal({ isOpen, onClose, editingProduct }: AddProductM
   const [showMeasurementFields, setShowMeasurementFields] = useState(false);
   const [newMeasurementName, setNewMeasurementName] = useState<{ [key: string]: string }>({});
 
-  // Pre-fill form when editing
+  // Pre-fill form when editing (API Product type)
   useEffect(() => {
     if (editingProduct) {
       setFormData({
-        ...formData,
-        title: editingProduct.name,
-        category: editingProduct.category.toLowerCase().replace(/ /g, '-'),
-        price: editingProduct.price.replace('₹', '').replace(',', ''),
-        quantity: editingProduct.stock.toString(),
-        status: editingProduct.status === 'In Stock' ? 'Active' : 
-                editingProduct.status === 'Low Stock' ? 'Active' : 'Draft',
+        title: editingProduct.title ?? '',
+        description: editingProduct.shortDescription ?? '',
+        productDetails: editingProduct.productDetails ?? '',
+        category: editingProduct.categoryId ?? editingProduct.category?.id ?? '',
+        price: String(editingProduct.mrp ?? ''),
+        compareAtPrice: editingProduct.compareAtPrice != null ? String(editingProduct.compareAtPrice) : '',
+        discountType: (editingProduct.discountType ?? 'percentage').toLowerCase().startsWith('perc') ? 'percentage' : 'fixed',
+        discountValue: editingProduct.discountValue != null ? String(editingProduct.discountValue) : '',
+        status: editingProduct.status ?? 'Active',
+        publishOnline: editingProduct.publishOnlineStore ?? true,
+        publishPOS: editingProduct.publishPOS ?? false,
+        type: '',
+        vendor: '',
+        collections: (editingProduct.collections ?? []).map((c) => c.id).join(', '),
+        tags: '',
+        template: 'Default product',
+        inventoryTracked: editingProduct.inventoryTracked ?? true,
+        quantity: String(editingProduct.quantity ?? 0),
+        shopLocation: editingProduct.shopLocation ?? '',
+        sku: editingProduct.sku ?? '',
+        barcode: editingProduct.barcode ?? '',
+        sellOutOfStock: editingProduct.allowOutOfStockSales ?? false,
+        physicalProduct: editingProduct.isPhysicalProduct ?? true,
+        weight: editingProduct.weight != null ? String(editingProduct.weight) : '0.0',
+        weightUnit: (editingProduct.weightUnit ?? 'kg').toLowerCase(),
+        countryOfOrigin: editingProduct.countryOfOrigin ?? '',
+        hsCode: editingProduct.hsCode ?? '',
+        details: '',
+        fitAndFabric: editingProduct.fitAndFabric ?? '',
+        shippingAndReturn: editingProduct.shippingAndReturns ?? '',
       });
-    } else {
+    } else if (!editingProduct) {
       // Reset form when not editing
       setFormData({
         title: '',
@@ -219,10 +239,56 @@ export function AddProductModal({ isOpen, onClose, editingProduct }: AddProductM
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('Product data:', formData);
-    onClose();
+    const mrp = Number(formData.price) || 0;
+    const compareAtPrice = formData.compareAtPrice ? Number(formData.compareAtPrice) : undefined;
+    const discountValue = formData.discountValue ? Number(formData.discountValue) : undefined;
+    const payload: CreateProductRequest = {
+      title: formData.title,
+      shortDescription: formData.description || undefined,
+      longDescription: undefined,
+      productDetails: formData.productDetails || undefined,
+      fitAndFabric: formData.fitAndFabric || undefined,
+      shippingAndReturns: formData.shippingAndReturn || undefined,
+      status: formData.status.toUpperCase() === 'ACTIVE' ? 'ACTIVE' : formData.status.toUpperCase() === 'DRAFT' ? 'DRAFT' : 'ACTIVE',
+      publishOnlineStore: formData.publishOnline,
+      publishPOS: formData.publishPOS,
+      mrp,
+      compareAtPrice,
+      discountType: formData.discountType === 'percentage' ? 'PERCENTAGE' : 'FIXED',
+      discountValue,
+      inventoryTracked: formData.inventoryTracked,
+      quantity: parseInt(formData.quantity, 10) || 0,
+      sku: formData.sku || undefined,
+      barcode: formData.barcode || undefined,
+      shopLocation: formData.shopLocation || undefined,
+      allowOutOfStockSales: formData.sellOutOfStock,
+      isPhysicalProduct: formData.physicalProduct,
+      weight: formData.weight ? parseFloat(formData.weight) : undefined,
+      weightUnit: formData.weightUnit?.toUpperCase() ?? undefined,
+      countryOfOrigin: formData.countryOfOrigin || undefined,
+      hsCode: formData.hsCode || undefined,
+      categoryId: formData.category || undefined,
+      collectionIds: formData.collections ? formData.collections.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+      media: [],
+      variants: [],
+      sizes: [],
+    };
+    if (onSave) {
+      try {
+        if (editingProduct?.id) {
+          await Promise.resolve(onSave({ ...payload, id: editingProduct.id }));
+        } else {
+          await Promise.resolve(onSave(payload));
+        }
+        onClose();
+      } catch {
+        // Parent sets error
+      }
+    } else {
+      onClose();
+    }
   };
 
   return (
@@ -248,9 +314,10 @@ export function AddProductModal({ isOpen, onClose, editingProduct }: AddProductM
             </button>
             <button
               onClick={handleSubmit}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              disabled={isSaving || !formData.title.trim()}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
             >
-              {editingProduct ? 'Update Product' : 'Save Product'}
+              {isSaving ? 'Saving...' : editingProduct ? 'Update Product' : 'Save Product'}
             </button>
           </div>
         </div>

@@ -1,15 +1,20 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Package, AlertTriangle, TrendingUp, Plus, X, Search } from 'lucide-react';
+import { inventoryService } from '../../api/services/inventoryService';
+import type { InventoryItem } from '../../api/types/inventory';
 
-interface InventoryItem {
-  id: number;
-  item: string;
-  sku: string;
-  quantity: number;
-  unit: string;
-  reorderLevel: number;
-  status: 'Good' | 'Low' | 'Critical';
-}
+type StockStatus = 'Good' | 'Low' | 'Critical';
+
+const UNIT_OPTIONS = [
+  { value: 'METERS', label: 'Meters' },
+  { value: 'KILOGRAMS', label: 'Kilograms' },
+  { value: 'GRAMS', label: 'Grams' },
+  { value: 'PIECES', label: 'Pieces' },
+  { value: 'LITERS', label: 'Liters' },
+  { value: 'UNITS', label: 'Units' },
+  { value: 'BOXES', label: 'Boxes' },
+  { value: 'ROLLS', label: 'Rolls' },
+];
 
 export function InventoryPage() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -20,34 +25,50 @@ export function InventoryPage() {
   const [restockQuantity, setRestockQuantity] = useState(0);
   const [adjustQuantity, setAdjustQuantity] = useState(0);
   const [adjustReason, setAdjustReason] = useState('');
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [addSubmitting, setAddSubmitting] = useState(false);
 
   const [newItem, setNewItem] = useState({
-    item: '',
+    itemName: '',
     sku: '',
     quantity: 0,
-    unit: 'meters',
+    unit: 'METERS',
     reorderLevel: 10,
   });
 
-  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([
-    { id: 1, item: 'Silk Fabric - Banarasi', sku: 'FAB-001', quantity: 250, unit: 'meters', reorderLevel: 50, status: 'Good' },
-    { id: 2, item: 'Cotton Fabric - Khadi', sku: 'FAB-002', quantity: 35, unit: 'meters', reorderLevel: 40, status: 'Low' },
-    { id: 3, item: 'Georgette - Designer', sku: 'FAB-003', quantity: 180, unit: 'meters', reorderLevel: 60, status: 'Good' },
-    { id: 4, item: 'Thread - Gold Zari', sku: 'THR-001', quantity: 12, unit: 'spools', reorderLevel: 20, status: 'Critical' },
-    { id: 5, item: 'Thread - Silver', sku: 'THR-002', quantity: 45, unit: 'spools', reorderLevel: 20, status: 'Good' },
-    { id: 6, item: 'Buttons - Brass', sku: 'BTN-001', quantity: 500, unit: 'pieces', reorderLevel: 100, status: 'Good' },
-    { id: 7, item: 'Zippers - 12 inch', sku: 'ZIP-001', quantity: 28, unit: 'pieces', reorderLevel: 30, status: 'Low' },
-    { id: 8, item: 'Lining Fabric - Satin', sku: 'FAB-004', quantity: 95, unit: 'meters', reorderLevel: 40, status: 'Good' },
-    { id: 9, item: 'Embroidery Thread', sku: 'THR-003', quantity: 67, unit: 'spools', reorderLevel: 30, status: 'Good' },
-    { id: 10, item: 'Lace - Net Border', sku: 'LAC-001', quantity: 15, unit: 'meters', reorderLevel: 25, status: 'Critical' },
-  ]);
+  const fetchInventory = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const list = await inventoryService.getList();
+      setInventoryItems(list);
+    } catch (e) {
+      const message =
+        e && typeof e === 'object' && 'message' in e
+          ? String((e as { message: string }).message)
+          : 'Failed to load inventory';
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const filteredItems = inventoryItems.filter(item =>
-    item.item.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.sku.toLowerCase().includes(searchTerm.toLowerCase())
+  useEffect(() => {
+    fetchInventory();
+  }, [fetchInventory]);
+
+  const filteredItems = inventoryItems.filter(
+    (item) =>
+      item.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.sku.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const getStatus = (quantity: number, reorderLevel: number): 'Good' | 'Low' | 'Critical' => {
+  const getStatus = (
+    quantity: number,
+    reorderLevel: number
+  ): StockStatus => {
     if (quantity <= reorderLevel * 0.5) return 'Critical';
     if (quantity <= reorderLevel) return 'Low';
     return 'Good';
@@ -55,14 +76,10 @@ export function InventoryPage() {
 
   const handleRestock = () => {
     if (selectedItem && restockQuantity > 0) {
-      const updatedItems = inventoryItems.map(item => {
+      const updatedItems = inventoryItems.map((item) => {
         if (item.id === selectedItem.id) {
           const newQuantity = item.quantity + restockQuantity;
-          return {
-            ...item,
-            quantity: newQuantity,
-            status: getStatus(newQuantity, item.reorderLevel),
-          };
+          return { ...item, quantity: newQuantity };
         }
         return item;
       });
@@ -75,14 +92,10 @@ export function InventoryPage() {
 
   const handleAdjust = () => {
     if (selectedItem && adjustReason.trim()) {
-      const updatedItems = inventoryItems.map(item => {
+      const updatedItems = inventoryItems.map((item) => {
         if (item.id === selectedItem.id) {
           const newQuantity = Math.max(0, adjustQuantity);
-          return {
-            ...item,
-            quantity: newQuantity,
-            status: getStatus(newQuantity, item.reorderLevel),
-          };
+          return { ...item, quantity: newQuantity };
         }
         return item;
       });
@@ -94,31 +107,44 @@ export function InventoryPage() {
     }
   };
 
-  const handleAddItem = (e: React.FormEvent) => {
+  const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    const item: InventoryItem = {
-      id: Math.max(...inventoryItems.map(i => i.id)) + 1,
-      item: newItem.item,
-      sku: newItem.sku,
-      quantity: newItem.quantity,
-      unit: newItem.unit,
-      reorderLevel: newItem.reorderLevel,
-      status: getStatus(newItem.quantity, newItem.reorderLevel),
-    };
-    setInventoryItems([...inventoryItems, item]);
-    setShowAddModal(false);
-    setNewItem({
-      item: '',
-      sku: '',
-      quantity: 0,
-      unit: 'meters',
-      reorderLevel: 10,
-    });
+    setAddSubmitting(true);
+    try {
+      const created = await inventoryService.create({
+        itemName: newItem.itemName,
+        sku: newItem.sku,
+        quantity: newItem.quantity,
+        unit: newItem.unit,
+        reorderLevel: newItem.reorderLevel,
+      });
+      setInventoryItems((prev) => [created, ...prev]);
+      setShowAddModal(false);
+      setNewItem({
+        itemName: '',
+        sku: '',
+        quantity: 0,
+        unit: 'METERS',
+        reorderLevel: 10,
+      });
+    } catch (err) {
+      const message =
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as { message: string }).message)
+          : 'Failed to add item';
+      setError(message);
+    } finally {
+      setAddSubmitting(false);
+    }
   };
 
   const totalItems = inventoryItems.reduce((sum, item) => sum + item.quantity, 0);
-  const lowStockItems = inventoryItems.filter(item => item.status === 'Low').length;
-  const criticalStockItems = inventoryItems.filter(item => item.status === 'Critical').length;
+  const lowStockItems = inventoryItems.filter(
+    (item) => getStatus(item.quantity, item.reorderLevel) === 'Low'
+  ).length;
+  const criticalStockItems = inventoryItems.filter(
+    (item) => getStatus(item.quantity, item.reorderLevel) === 'Critical'
+  ).length;
 
   const stats = [
     { label: 'Total Items', value: totalItems.toString(), icon: Package, color: 'bg-blue-500' },
@@ -141,6 +167,19 @@ export function InventoryPage() {
           Add Item
         </button>
       </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex justify-between items-center">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="text-red-500 hover:text-red-700 font-medium"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {stats.map((stat) => (
@@ -175,68 +214,79 @@ export function InventoryPage() {
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SKU</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reorder Level</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredItems.map((item) => (
-                <tr key={item.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{item.item}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{item.sku}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                    {item.quantity} {item.unit}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                    {item.reorderLevel} {item.unit}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      item.status === 'Good' 
-                        ? 'bg-green-100 text-green-800' 
-                        : item.status === 'Low'
-                        ? 'bg-yellow-100 text-yellow-800'
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {item.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <button
-                      onClick={() => {
-                        setSelectedItem(item);
-                        setRestockQuantity(0);
-                        setShowRestockModal(true);
-                      }}
-                      className="text-blue-600 hover:text-blue-900 mr-4 font-medium"
-                    >
-                      Restock
-                    </button>
-                    <button
-                      onClick={() => {
-                        setSelectedItem(item);
-                        setAdjustQuantity(item.quantity);
-                        setAdjustReason('');
-                        setShowAdjustModal(true);
-                      }}
-                      className="text-gray-600 hover:text-gray-900 font-medium"
-                    >
-                      Adjust
-                    </button>
-                  </td>
+          {loading ? (
+            <div className="p-12 text-center">
+              <p className="text-gray-500">Loading inventory...</p>
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item Name</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SKU</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reorder Level</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredItems.map((item) => {
+                  const status = getStatus(item.quantity, item.reorderLevel);
+                  return (
+                    <tr key={item.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{item.itemName}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{item.sku}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {item.quantity} {item.unit.toLowerCase()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {item.reorderLevel} {item.unit.toLowerCase()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                            status === 'Good'
+                              ? 'bg-green-100 text-green-800'
+                              : status === 'Low'
+                                ? 'bg-yellow-100 text-yellow-800'
+                                : 'bg-red-100 text-red-800'
+                          }`}
+                        >
+                          {status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <button
+                          onClick={() => {
+                            setSelectedItem(item);
+                            setRestockQuantity(0);
+                            setShowRestockModal(true);
+                          }}
+                          className="text-blue-600 hover:text-blue-900 mr-4 font-medium"
+                        >
+                          Restock
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelectedItem(item);
+                            setAdjustQuantity(item.quantity);
+                            setAdjustReason('');
+                            setShowAdjustModal(true);
+                          }}
+                          className="text-gray-600 hover:text-gray-900 font-medium"
+                        >
+                          Adjust
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
 
-          {filteredItems.length === 0 && (
+          {!loading && filteredItems.length === 0 && (
             <div className="p-12 text-center">
               <p className="text-gray-500">No items found</p>
             </div>
@@ -264,9 +314,9 @@ export function InventoryPage() {
             <div className="p-6 space-y-4">
               <div className="bg-blue-50 p-4 rounded-lg">
                 <p className="text-sm text-gray-600">Item</p>
-                <p className="font-semibold text-gray-900">{selectedItem.item}</p>
+                <p className="font-semibold text-gray-900">{selectedItem.itemName}</p>
                 <p className="text-sm text-gray-600 mt-2">Current Stock</p>
-                <p className="font-semibold text-gray-900">{selectedItem.quantity} {selectedItem.unit}</p>
+                <p className="font-semibold text-gray-900">{selectedItem.quantity} {selectedItem.unit.toLowerCase()}</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -285,7 +335,7 @@ export function InventoryPage() {
                 <div className="bg-green-50 p-4 rounded-lg">
                   <p className="text-sm text-gray-600">New Stock Level</p>
                   <p className="text-2xl font-semibold text-green-700">
-                    {selectedItem.quantity + restockQuantity} {selectedItem.unit}
+                    {selectedItem.quantity + restockQuantity} {selectedItem.unit.toLowerCase()}
                   </p>
                 </div>
               )}
@@ -334,9 +384,9 @@ export function InventoryPage() {
             <div className="p-6 space-y-4">
               <div className="bg-blue-50 p-4 rounded-lg">
                 <p className="text-sm text-gray-600">Item</p>
-                <p className="font-semibold text-gray-900">{selectedItem.item}</p>
+                <p className="font-semibold text-gray-900">{selectedItem.itemName}</p>
                 <p className="text-sm text-gray-600 mt-2">Current Stock</p>
-                <p className="font-semibold text-gray-900">{selectedItem.quantity} {selectedItem.unit}</p>
+                <p className="font-semibold text-gray-900">{selectedItem.quantity} {selectedItem.unit.toLowerCase()}</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -367,7 +417,7 @@ export function InventoryPage() {
                 <div className={`p-4 rounded-lg ${adjustQuantity > selectedItem.quantity ? 'bg-green-50' : 'bg-yellow-50'}`}>
                   <p className="text-sm text-gray-600">Adjustment</p>
                   <p className={`text-lg font-semibold ${adjustQuantity > selectedItem.quantity ? 'text-green-700' : 'text-yellow-700'}`}>
-                    {adjustQuantity > selectedItem.quantity ? '+' : ''}{adjustQuantity - selectedItem.quantity} {selectedItem.unit}
+                    {adjustQuantity > selectedItem.quantity ? '+' : ''}{adjustQuantity - selectedItem.quantity} {selectedItem.unit.toLowerCase()}
                   </p>
                 </div>
               )}
@@ -417,8 +467,8 @@ export function InventoryPage() {
                 <input
                   type="text"
                   required
-                  value={newItem.item}
-                  onChange={(e) => setNewItem({ ...newItem, item: e.target.value })}
+                  value={newItem.itemName}
+                  onChange={(e) => setNewItem({ ...newItem, itemName: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="e.g., Silk Fabric - Red"
                 />
@@ -459,11 +509,11 @@ export function InventoryPage() {
                     onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    <option value="meters">Meters</option>
-                    <option value="pieces">Pieces</option>
-                    <option value="spools">Spools</option>
-                    <option value="kg">Kilograms</option>
-                    <option value="boxes">Boxes</option>
+                    {UNIT_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -485,15 +535,17 @@ export function InventoryPage() {
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  disabled={addSubmitting}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  disabled={addSubmitting}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Add Item
+                  {addSubmitting ? 'Adding...' : 'Add Item'}
                 </button>
               </div>
             </form>

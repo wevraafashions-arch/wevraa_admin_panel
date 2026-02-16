@@ -1,80 +1,103 @@
 import { useState, useEffect } from 'react';
-import { X, Upload, Image as ImageIcon, Search, Package } from 'lucide-react';
+import { X, Image as ImageIcon } from 'lucide-react';
+import type { Category } from '../api/types/category';
+import type { CreateCategoryRequest, UpdateCategoryRequest } from '../api/types/category';
 
-interface Product {
-  id: number;
-  name: string;
-  price: string;
-  category: string;
-  stock: number;
-  image?: string;
-}
+export type SaveCategoryPayload =
+  | CreateCategoryRequest
+  | (UpdateCategoryRequest & { id: string });
 
 interface AddCategoryModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (category: any) => void;
-  availableProducts: Product[];
-  editingCategory?: {
-    id: number;
-    name: string;
-    headline: string;
-    description: string;
-    thumbnail?: string;
-    products: number;
-    status: string;
-    selectedProductIds?: number[];
-  } | null;
+  onSave: (payload: SaveCategoryPayload) => void | Promise<void>;
+  editingCategory: Category | null;
+  isSaving?: boolean;
 }
 
-export function AddCategoryModal({ isOpen, onClose, onSave, availableProducts, editingCategory }: AddCategoryModalProps) {
+const STATUS_OPTIONS = [
+  { value: 'ACTIVE', label: 'Active' },
+  { value: 'INACTIVE', label: 'Inactive' },
+  { value: 'SERVICE', label: 'Service' },
+] as const;
+
+export function AddCategoryModal({
+  isOpen,
+  onClose,
+  onSave,
+  editingCategory,
+  isSaving = false,
+}: AddCategoryModalProps) {
   const [formData, setFormData] = useState({
     name: '',
     headline: '',
-    description: '',
-    status: 'Active',
+    shortDescription: '',
+    status: 'ACTIVE',
   });
-  const [thumbnail, setThumbnail] = useState<string | null>(null);
-  const [selectedProductIds, setSelectedProductIds] = useState<number[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [thumbnailImage, setThumbnailImage] = useState<string>('');
+  const [productIdsStr, setProductIdsStr] = useState('');
 
-  // Pre-fill form when editing
   useEffect(() => {
     if (editingCategory) {
       setFormData({
         name: editingCategory.name,
         headline: editingCategory.headline || '',
-        description: editingCategory.description,
-        status: editingCategory.status,
+        shortDescription: editingCategory.shortDescription || '',
+        status: editingCategory.status || 'ACTIVE',
       });
-      setThumbnail(editingCategory.thumbnail || null);
-      setSelectedProductIds(editingCategory.selectedProductIds || []);
+      setThumbnailImage(editingCategory.thumbnailImage || '');
+      setProductIdsStr(
+        (editingCategory.products ?? [])
+          .map((p) => p.id)
+          .filter(Boolean)
+          .join(', ')
+      );
     } else {
-      // Reset form when not editing
       setFormData({
         name: '',
         headline: '',
-        description: '',
-        status: 'Active',
+        shortDescription: '',
+        status: 'ACTIVE',
       });
-      setThumbnail(null);
-      setSelectedProductIds([]);
+      setThumbnailImage('');
+      setProductIdsStr('');
     }
   }, [editingCategory, isOpen]);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const categoryData = {
-      ...formData,
-      thumbnail,
-      id: editingCategory?.id || Date.now(),
-      products: selectedProductIds.length,
-      selectedProductIds,
+    const productIds = productIdsStr
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const payload = {
+      name: formData.name,
+      headline: formData.headline || undefined,
+      shortDescription: formData.shortDescription || undefined,
+      status: formData.status,
+      thumbnailImage: thumbnailImage || undefined,
+      productIds: productIds.length ? productIds : undefined,
     };
-    onSave(categoryData);
-    onClose();
+    try {
+      if (editingCategory) {
+        await Promise.resolve(
+          (onSave as (p: UpdateCategoryRequest & { id: string }) => void | Promise<void>)({
+            ...payload,
+            id: editingCategory.id,
+          })
+        );
+      } else {
+        await Promise.resolve(
+          (onSave as (p: CreateCategoryRequest) => void | Promise<void>)(
+            payload as CreateCategoryRequest
+          )
+        );
+      }
+    } catch {
+      // Parent sets error; keep modal open
+    }
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -82,30 +105,24 @@ export function AddCategoryModal({ isOpen, onClose, onSave, availableProducts, e
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setThumbnail(reader.result as string);
+        setThumbnailImage(reader.result as string);
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const handleProductSelection = (productId: number) => {
-    if (selectedProductIds.includes(productId)) {
-      setSelectedProductIds(selectedProductIds.filter(id => id !== productId));
-    } else {
-      setSelectedProductIds([...selectedProductIds, productId]);
-    }
-  };
-
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-start justify-center overflow-y-auto py-8">
-      <div className="bg-gray-50 w-full max-w-4xl mx-4 rounded-lg shadow-xl">
-        {/* Header */}
-        <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10 rounded-t-lg">
+      <div className="bg-gray-50 dark:bg-gray-900 w-full max-w-4xl mx-4 rounded-lg shadow-xl">
+        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between sticky top-0 z-10 rounded-t-lg">
           <div className="flex items-center gap-2">
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            >
               <X className="w-5 h-5" />
             </button>
-            <h2 className="text-xl font-semibold text-gray-900">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
               {editingCategory ? 'Edit category' : 'Add category'}
             </h2>
           </div>
@@ -113,27 +130,29 @@ export function AddCategoryModal({ isOpen, onClose, onSave, availableProducts, e
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
             >
               Cancel
             </button>
             <button
               onClick={handleSubmit}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              disabled={isSaving || !formData.name.trim()}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
             >
-              {editingCategory ? 'Update Category' : 'Save Category'}
+              {isSaving ? 'Saving...' : editingCategory ? 'Update Category' : 'Save Category'}
             </button>
           </div>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6">
           <div className="space-y-6">
-            {/* Basic Information */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="font-semibold text-gray-900 mb-4">Basic Information</h3>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700">
+              <h3 className="font-semibold text-gray-900 dark:text-white mb-4">
+                Basic Information
+              </h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Category Name *
                   </label>
                   <input
@@ -141,13 +160,13 @@ export function AddCategoryModal({ isOpen, onClose, onSave, availableProducts, e
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     placeholder="e.g., Wedding Wear"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Headline
                   </label>
                   <input
@@ -155,74 +174,82 @@ export function AddCategoryModal({ isOpen, onClose, onSave, availableProducts, e
                     value={formData.headline}
                     onChange={(e) => setFormData({ ...formData, headline: e.target.value })}
                     placeholder="e.g., Elegant Wedding Collection"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   />
-                  <p className="text-xs text-gray-500 mt-1">A catchy headline to display for this category</p>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Short Description
                   </label>
                   <textarea
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    value={formData.shortDescription}
+                    onChange={(e) =>
+                      setFormData({ ...formData, shortDescription: e.target.value })
+                    }
                     placeholder="Brief description of this category"
                     rows={2}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Status
                   </label>
                   <select
                     value={formData.status}
                     onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   >
-                    <option value="Active">Active</option>
-                    <option value="Inactive">Inactive</option>
-                    <option value="Service">Service</option>
+                    {STATUS_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
             </div>
 
-            {/* Thumbnail Image */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="font-semibold text-gray-900 mb-2">Thumbnail Image</h3>
-              <p className="text-xs text-gray-500 mb-4">Add a category thumbnail image (recommended size: 800x600px)</p>
-              
-              {thumbnail ? (
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700">
+              <h3 className="font-semibold text-gray-900 dark:text-white mb-2">
+                Thumbnail Image
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                URL or upload (recommended size: 800x600px)
+              </p>
+
+              {thumbnailImage ? (
                 <div className="relative">
                   <img
-                    src={thumbnail}
+                    src={thumbnailImage}
                     alt="Category thumbnail"
                     className="w-full h-48 object-cover rounded-lg"
                   />
                   <button
                     type="button"
-                    onClick={() => setThumbnail(null)}
+                    onClick={() => setThumbnailImage('')}
                     className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
                   >
                     <X className="w-4 h-4" />
                   </button>
                 </div>
               ) : (
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-8">
+                <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8">
                   <div className="flex flex-col items-center justify-center text-center">
-                    <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center mb-3">
+                    <div className="w-12 h-12 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center mb-3">
                       <ImageIcon className="w-6 h-6 text-gray-400" />
                     </div>
                     <label htmlFor="category-image" className="cursor-pointer">
                       <span className="text-blue-600 hover:text-blue-700 font-medium">
                         Click to upload
                       </span>
-                      <span className="text-gray-500"> or drag and drop</span>
+                      <span className="text-gray-500 dark:text-gray-400"> or drag and drop</span>
                     </label>
-                    <p className="text-xs text-gray-500 mt-1">PNG, JPG up to 10MB</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      PNG, JPG up to 10MB
+                    </p>
                     <input
                       id="category-image"
                       type="file"
@@ -235,54 +262,20 @@ export function AddCategoryModal({ isOpen, onClose, onSave, availableProducts, e
               )}
             </div>
 
-            {/* Product Selection */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-gray-900">Product Selection</h3>
-                <span className="px-3 py-1 bg-blue-100 text-blue-800 text-sm font-semibold rounded-full">
-                  {selectedProductIds.length} selected
-                </span>
-              </div>
-              <div className="space-y-4">
-                <div className="flex items-center">
-                  <Search className="w-5 h-5 text-gray-400 mr-2" />
-                  <input
-                    type="text"
-                    placeholder="Search products"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  {availableProducts
-                    .filter(product => product.name.toLowerCase().includes(searchQuery.toLowerCase()))
-                    .map(product => (
-                      <div
-                        key={product.id}
-                        className={`border-2 rounded-lg p-2 cursor-pointer ${
-                          selectedProductIds.includes(product.id) ? 'border-blue-500' : 'border-gray-300'
-                        }`}
-                        onClick={() => handleProductSelection(product.id)}
-                      >
-                        <div className="relative">
-                          <img
-                            src={product.image || 'https://via.placeholder.com/150'}
-                            alt={product.name}
-                            className="w-full h-24 object-cover rounded-lg"
-                          />
-                          {selectedProductIds.includes(product.id) && (
-                            <div className="absolute top-2 right-2 p-2 bg-blue-500 text-white rounded-lg">
-                              <Package className="w-4 h-4" />
-                            </div>
-                          )}
-                        </div>
-                        <p className="text-sm text-gray-700 mt-2">{product.name}</p>
-                      </div>
-                    ))}
-                </div>
-              </div>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700">
+              <h3 className="font-semibold text-gray-900 dark:text-white mb-2">
+                Product IDs (optional)
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                Comma-separated product IDs to link to this category
+              </p>
+              <input
+                type="text"
+                value={productIdsStr}
+                onChange={(e) => setProductIdsStr(e.target.value)}
+                placeholder="e.g. product-uuid-1, product-uuid-2"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              />
             </div>
           </div>
         </form>
