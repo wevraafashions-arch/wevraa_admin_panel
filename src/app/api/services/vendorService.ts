@@ -25,4 +25,8 @@ export const vendorService = {
       body: JSON.stringify(body),
     });
   },
+
+  async delete(id: string): Promise<void> {
+    await apiClient<void>(`${VENDORS_PATH}/${id}`, { method: 'DELETE' });
+  },
 };

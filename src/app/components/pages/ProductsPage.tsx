@@ -62,11 +62,11 @@ export function ProductsPage() {
     setActionLoading(true);
     setError(null);
     try {
-      if (editingProduct && payload.id) {
+      if (editingProduct?.id && 'id' in payload && payload.id) {
         const { id, ...body } = payload as UpdateProductRequest & { id: string };
         await productsService.update(id, body);
       } else {
-        const { id: _id, ...body } = payload;
+        const { id: _id, ...body } = payload as CreateProductRequest & { id?: string };
         await productsService.create(body as CreateProductRequest);
       }
       await fetchProducts();
@@ -289,13 +289,12 @@ export function ProductsPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
-                        className={`px-3 py-1 text-xs font-semibold rounded-full ${
-                          stockStatus(product) === 'In Stock'
+                        className={`px-3 py-1 text-xs font-semibold rounded-full ${stockStatus(product) === 'In Stock'
                             ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                             : stockStatus(product) === 'Low Stock'
                               ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
                               : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                        }`}
+                          }`}
                       >
                         {stockStatus(product)}
                       </span>

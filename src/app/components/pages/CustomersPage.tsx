@@ -188,9 +188,21 @@ export function CustomersPage() {
     setShowAddModal(true);
   };
 
-  const handleDeleteCustomer = (customerId: string) => {
-    if (confirm('Are you sure you want to delete this customer?')) {
+  const handleDeleteCustomer = async (customerId: string) => {
+    if (!confirm('Are you sure you want to delete this customer?')) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await customerService.delete(customerId);
       setCustomers((prev) => prev.filter((c) => c.id !== customerId));
+    } catch (e) {
+      const message =
+        e && typeof e === 'object' && 'message' in e
+          ? String((e as { message: string }).message)
+          : 'Failed to delete customer';
+      setError(message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -284,61 +296,60 @@ export function CustomersPage() {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredCustomers.map((customer) => (
-                <tr key={customer.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{customer.name}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-2 text-sm text-gray-700">
-                        <Mail className="w-4 h-4 text-gray-400" />
-                        {customer.email}
+                  <tr key={customer.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{customer.name}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2 text-sm text-gray-700">
+                          <Mail className="w-4 h-4 text-gray-400" />
+                          {customer.email}
+                        </div>
+                        <div className="flex items-center gap-2 text-sm text-gray-700">
+                          <Phone className="w-4 h-4 text-gray-400" />
+                          {customer.phone}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 text-sm text-gray-700">
-                        <Phone className="w-4 h-4 text-gray-400" />
-                        {customer.phone}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{customer.orders}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{customer.totalSpent}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${customer.status === 'VIP'
+                          ? 'bg-purple-100 text-purple-800'
+                          : customer.status === 'New'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-green-100 text-green-800'
+                        }`}>
+                        {customer.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleViewDetails(customer)}
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="View details"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => openEditModal(customer)}
+                          className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                          title="Edit customer"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCustomer(customer.id)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Delete customer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{customer.orders}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{customer.totalSpent}</td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      customer.status === 'VIP' 
-                        ? 'bg-purple-100 text-purple-800' 
-                        : customer.status === 'New'
-                        ? 'bg-blue-100 text-blue-800'
-                        : 'bg-green-100 text-green-800'
-                    }`}>
-                      {customer.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleViewDetails(customer)}
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="View details"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => openEditModal(customer)}
-                        className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                        title="Edit customer"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteCustomer(customer.id)}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Delete customer"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                    </td>
+                  </tr>
                 ))}
               </tbody>
             </table>
@@ -528,13 +539,12 @@ export function CustomersPage() {
                   </div>
                   <div>
                     <p className="text-sm text-gray-600">Status</p>
-                    <span className={`inline-block px-3 py-1 text-xs font-semibold rounded-full mt-1 ${
-                      selectedCustomer.status === 'VIP' 
-                        ? 'bg-purple-100 text-purple-800' 
+                    <span className={`inline-block px-3 py-1 text-xs font-semibold rounded-full mt-1 ${selectedCustomer.status === 'VIP'
+                        ? 'bg-purple-100 text-purple-800'
                         : selectedCustomer.status === 'New'
-                        ? 'bg-blue-100 text-blue-800'
-                        : 'bg-green-100 text-green-800'
-                    }`}>
+                          ? 'bg-blue-100 text-blue-800'
+                          : 'bg-green-100 text-green-800'
+                      }`}>
                       {selectedCustomer.status}
                     </span>
                   </div>

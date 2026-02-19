@@ -9,13 +9,13 @@ export interface ProductMediaItem {
 export interface ProductVariantItem {
   optionName: string;
   optionValue: string;
-  priceOverride?: number;
+  priceOverride?: number | null;
   skuOverride?: string;
 }
 
 export interface SizeMeasurementItem {
   key: string;
-  value: string;
+  value: number;
   unit: string;
 }
 
@@ -27,31 +27,31 @@ export interface ProductSizeItem {
 
 export interface CreateProductRequest {
   title: string;
-  shortDescription?: string;
-  longDescription?: string;
+  productDescription?: string;
   productDetails?: string;
   fitAndFabric?: string;
   shippingAndReturns?: string;
-  status: string;
+  status?: string;
   publishOnlineStore?: boolean;
   publishPOS?: boolean;
   mrp: number;
   compareAtPrice?: number;
-  discountType?: string;
+  discountType?: 'PERCENTAGE' | 'FLAT';
   discountValue?: number;
   inventoryTracked?: boolean;
   quantity?: number;
   sku?: string;
   barcode?: string;
-  shopLocation?: string;
   allowOutOfStockSales?: boolean;
   isPhysicalProduct?: boolean;
-  packageType?: string;
   weight?: number;
-  weightUnit?: string;
+  weightUnit?: 'GRAM' | 'KG';
   countryOfOrigin?: string;
-  hsCode?: string;
   categoryId?: string;
+  vendorId?: string;
+  productType?: 'PHYSICAL' | 'DIGITAL';
+  themeTemplate?: 'DEFAULT_PRODUCT' | 'FEATURED_PRODUCT' | 'CUSTOM_PRODUCT';
+  tags?: string[];
   collectionIds?: string[];
   media?: ProductMediaItem[];
   variants?: ProductVariantItem[];
@@ -78,8 +78,7 @@ export interface ProductCollectionRef {
 export interface Product {
   id: string;
   title: string;
-  shortDescription?: string | null;
-  longDescription?: string | null;
+  productDescription?: string | null;
   productDetails?: string | null;
   fitAndFabric?: string | null;
   shippingAndReturns?: string | null;
@@ -94,18 +93,20 @@ export interface Product {
   quantity?: number;
   sku?: string | null;
   barcode?: string | null;
-  shopLocation?: string | null;
   allowOutOfStockSales?: boolean;
   isPhysicalProduct?: boolean;
-  packageType?: string | null;
   weight?: number | null;
   weightUnit?: string | null;
   countryOfOrigin?: string | null;
-  hsCode?: string | null;
   categoryId?: string | null;
+  vendorId?: string | null;
+  productType?: string | null;
+  themeTemplate?: string | null;
+  tags?: string[];
   createdAt?: string;
   updatedAt?: string;
   category?: ProductCategory | null;
+  vendor?: { id: string; companyName: string; contactPersonName: string } | null;
   collections?: ProductCollectionRef[];
   media?: { id?: string; url: string; type: string; alt?: string; order?: number }[];
   variants?: ProductVariantItem[];

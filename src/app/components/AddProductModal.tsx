@@ -1,7 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Upload, Image as ImageIcon, Plus, GripVertical, Info, Search } from 'lucide-react';
 import 'react-quill/dist/quill.snow.css';
 import { useVendors } from '@/contexts/VendorContext';
+import { categoriesService } from '../api/services/categoriesService';
+import { collectionsService } from '../api/services/collectionsService';
+import type { Category } from '../api/types/category';
+import type { Collection } from '../api/types/collection';
 
 // Dynamic wrapper for ReactQuill with StrictMode compatibility
 const QuillEditor = ({ value, onChange }: { value: string; onChange: (value: string) => void }) => {
@@ -14,7 +18,7 @@ const QuillEditor = ({ value, onChange }: { value: string; onChange: (value: str
     import('react-quill').then((mod) => {
       setReactQuill(() => mod.default);
     });
-    
+
     // Suppress findDOMNode warning in console
     const originalError = console.error;
     console.error = (...args) => {
@@ -33,7 +37,7 @@ const QuillEditor = ({ value, onChange }: { value: string; onChange: (value: str
     toolbar: [
       [{ 'header': [1, 2, 3, false] }],
       ['bold', 'italic', 'underline', 'strike'],
-      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+      [{ 'list': 'ordered' }, { 'list': 'bullet' }],
       [{ 'align': [] }],
       ['link'],
       ['clean']
@@ -74,21 +78,47 @@ interface AddProductModalProps {
 
 export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSaving = false }: AddProductModalProps) {
   const { vendors } = useVendors();
-  
-  // Mock collections data (in real app, this would come from a CollectionsContext)
-  const collections = [
-    { id: 1, title: 'Summer Collections' },
-    { id: 2, title: 'Wedding Special' },
-    { id: 3, title: 'Festive Wear' },
-    { id: 4, title: 'Ethnic Collections' },
-    { id: 5, title: 'Bridal Lehenga Collection' },
-    { id: 6, title: 'Men\'s Sherwanis' },
-    { id: 7, title: 'Designer Sarees' },
-    { id: 8, title: 'Casual Kurtas' },
-    { id: 9, title: 'Diwali Special' },
-    { id: 10, title: 'Office Wear' },
-  ];
-  
+
+  // Fetch categories and collections from API
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(false);
+  const [loadingCollections, setLoadingCollections] = useState(false);
+
+  const fetchCategories = useCallback(async () => {
+    setLoadingCategories(true);
+    try {
+      const list = await categoriesService.getList();
+      setCategories(Array.isArray(list) ? list : []);
+    } catch {
+      setCategories([]);
+    } finally {
+      setLoadingCategories(false);
+    }
+  }, []);
+
+  const fetchCollections = useCallback(async () => {
+    setLoadingCollections(true);
+    try {
+      const list = await collectionsService.getList();
+      setCollections(Array.isArray(list) ? list : []);
+    } catch {
+      setCollections([]);
+    } finally {
+      setLoadingCollections(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchCategories();
+      fetchCollections();
+    }
+  }, [isOpen, fetchCategories, fetchCollections]);
+
+  // Selected collection IDs (multi-select)
+  const [selectedCollectionIds, setSelectedCollectionIds] = useState<string[]>([]);
+
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -98,14 +128,13 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
     compareAtPrice: '',
     discountType: 'percentage',
     discountValue: '',
-    status: 'Active',
-    publishOnline: true,
+    status: 'DRAFT',
+    publishOnline: false,
     publishPOS: false,
-    type: '',
+    productType: 'PHYSICAL',
     vendor: '',
-    collections: '',
     tags: '',
-    template: 'Default product',
+    template: 'DEFAULT_PRODUCT',
     inventoryTracked: true,
     quantity: '0',
     shopLocation: '',
@@ -114,7 +143,7 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
     sellOutOfStock: false,
     physicalProduct: true,
     weight: '0.0',
-    weightUnit: 'kg',
+    weightUnit: 'KG',
     countryOfOrigin: '',
     hsCode: '',
     details: '',
@@ -133,14 +162,14 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
   const predefinedSizes = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL', '5XL'];
   const [selectedSizes, setSelectedSizes] = useState<string[]>([]);
   const [customSize, setCustomSize] = useState('');
-  const [sizeMeasurements, setSizeMeasurements] = useState<{ 
-    [key: string]: { 
-      bust?: string; 
-      waist?: string; 
+  const [sizeMeasurements, setSizeMeasurements] = useState<{
+    [key: string]: {
+      bust?: string;
+      waist?: string;
       hips?: string;
       stock?: string;
       additional?: { name: string; value: string }[];
-    } 
+    }
   }>({});
   const [showMeasurementFields, setShowMeasurementFields] = useState(false);
   const [newMeasurementName, setNewMeasurementName] = useState<{ [key: string]: string }>({});
@@ -150,36 +179,36 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
     if (editingProduct) {
       setFormData({
         title: editingProduct.title ?? '',
-        description: editingProduct.shortDescription ?? '',
+        description: editingProduct.productDescription ?? '',
         productDetails: editingProduct.productDetails ?? '',
         category: editingProduct.categoryId ?? editingProduct.category?.id ?? '',
         price: String(editingProduct.mrp ?? ''),
         compareAtPrice: editingProduct.compareAtPrice != null ? String(editingProduct.compareAtPrice) : '',
-        discountType: (editingProduct.discountType ?? 'percentage').toLowerCase().startsWith('perc') ? 'percentage' : 'fixed',
+        discountType: (editingProduct.discountType ?? 'PERCENTAGE').toUpperCase().startsWith('PERC') ? 'percentage' : 'fixed',
         discountValue: editingProduct.discountValue != null ? String(editingProduct.discountValue) : '',
-        status: editingProduct.status ?? 'Active',
-        publishOnline: editingProduct.publishOnlineStore ?? true,
+        status: editingProduct.status ?? 'DRAFT',
+        publishOnline: editingProduct.publishOnlineStore ?? false,
         publishPOS: editingProduct.publishPOS ?? false,
-        type: '',
-        vendor: '',
-        collections: (editingProduct.collections ?? []).map((c) => c.id).join(', '),
-        tags: '',
-        template: 'Default product',
+        productType: editingProduct.productType ?? 'PHYSICAL',
+        vendor: editingProduct.vendorId ?? editingProduct.vendor?.id ?? '',
+        tags: (editingProduct.tags ?? []).join(', '),
+        template: editingProduct.themeTemplate ?? 'DEFAULT_PRODUCT',
         inventoryTracked: editingProduct.inventoryTracked ?? true,
         quantity: String(editingProduct.quantity ?? 0),
-        shopLocation: editingProduct.shopLocation ?? '',
+        shopLocation: '',
         sku: editingProduct.sku ?? '',
         barcode: editingProduct.barcode ?? '',
         sellOutOfStock: editingProduct.allowOutOfStockSales ?? false,
         physicalProduct: editingProduct.isPhysicalProduct ?? true,
         weight: editingProduct.weight != null ? String(editingProduct.weight) : '0.0',
-        weightUnit: (editingProduct.weightUnit ?? 'kg').toLowerCase(),
+        weightUnit: (editingProduct.weightUnit ?? 'KG').toUpperCase(),
         countryOfOrigin: editingProduct.countryOfOrigin ?? '',
-        hsCode: editingProduct.hsCode ?? '',
+        hsCode: '',
         details: '',
         fitAndFabric: editingProduct.fitAndFabric ?? '',
         shippingAndReturn: editingProduct.shippingAndReturns ?? '',
       });
+      setSelectedCollectionIds((editingProduct.collections ?? []).map((c) => c.id));
     } else if (!editingProduct) {
       // Reset form when not editing
       setFormData({
@@ -191,14 +220,13 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
         compareAtPrice: '',
         discountType: 'percentage',
         discountValue: '',
-        status: 'Active',
-        publishOnline: true,
+        status: 'DRAFT',
+        publishOnline: false,
         publishPOS: false,
-        type: '',
+        productType: 'PHYSICAL',
         vendor: '',
-        collections: '',
         tags: '',
-        template: 'Default product',
+        template: 'DEFAULT_PRODUCT',
         inventoryTracked: true,
         quantity: '0',
         shopLocation: '',
@@ -207,13 +235,14 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
         sellOutOfStock: false,
         physicalProduct: true,
         weight: '0.0',
-        weightUnit: 'kg',
+        weightUnit: 'KG',
         countryOfOrigin: '',
         hsCode: '',
         details: '',
         fitAndFabric: '',
         shippingAndReturn: '',
       });
+      setSelectedCollectionIds([]);
     }
   }, [editingProduct]);
 
@@ -244,36 +273,74 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
     const mrp = Number(formData.price) || 0;
     const compareAtPrice = formData.compareAtPrice ? Number(formData.compareAtPrice) : undefined;
     const discountValue = formData.discountValue ? Number(formData.discountValue) : undefined;
+
+    // Parse tags from comma-separated string
+    const tags = formData.tags
+      ? formData.tags.split(',').map((t) => t.trim()).filter(Boolean)
+      : [];
+
+    // Build sizes from selected sizes + measurements
+    const sizesPayload = selectedSizes.map((sizeName) => {
+      const m = sizeMeasurements[sizeName];
+      const measurements: { key: string; value: number; unit: string }[] = [];
+      if (m?.bust) measurements.push({ key: 'Bust', value: parseFloat(m.bust) || 0, unit: 'inches' });
+      if (m?.waist) measurements.push({ key: 'Waist', value: parseFloat(m.waist) || 0, unit: 'inches' });
+      if (m?.hips) measurements.push({ key: 'Hips', value: parseFloat(m.hips) || 0, unit: 'inches' });
+      if (m?.additional) {
+        m.additional.forEach((a) => {
+          if (a.name && a.value) measurements.push({ key: a.name, value: parseFloat(a.value) || 0, unit: 'inches' });
+        });
+      }
+      return {
+        sizeName,
+        stockQuantity: parseInt(m?.stock || '0', 10),
+        measurements: measurements.length > 0 ? measurements : undefined,
+      };
+    });
+
+    // Build variants payload
+    const variantsPayload = variants
+      .filter((v) => v.name.trim())
+      .flatMap((v) =>
+        v.values.filter((val) => val.trim()).map((val) => ({
+          optionName: v.name,
+          optionValue: val,
+          priceOverride: null,
+          skuOverride: undefined,
+        }))
+      );
+
     const payload: CreateProductRequest = {
       title: formData.title,
-      shortDescription: formData.description || undefined,
-      longDescription: undefined,
+      productDescription: formData.description || undefined,
       productDetails: formData.productDetails || undefined,
       fitAndFabric: formData.fitAndFabric || undefined,
       shippingAndReturns: formData.shippingAndReturn || undefined,
-      status: formData.status.toUpperCase() === 'ACTIVE' ? 'ACTIVE' : formData.status.toUpperCase() === 'DRAFT' ? 'DRAFT' : 'ACTIVE',
+      status: formData.status,
       publishOnlineStore: formData.publishOnline,
       publishPOS: formData.publishPOS,
       mrp,
       compareAtPrice,
-      discountType: formData.discountType === 'percentage' ? 'PERCENTAGE' : 'FIXED',
+      discountType: formData.discountType === 'percentage' ? 'PERCENTAGE' : 'FLAT',
       discountValue,
       inventoryTracked: formData.inventoryTracked,
       quantity: parseInt(formData.quantity, 10) || 0,
       sku: formData.sku || undefined,
       barcode: formData.barcode || undefined,
-      shopLocation: formData.shopLocation || undefined,
       allowOutOfStockSales: formData.sellOutOfStock,
       isPhysicalProduct: formData.physicalProduct,
       weight: formData.weight ? parseFloat(formData.weight) : undefined,
-      weightUnit: formData.weightUnit?.toUpperCase() ?? undefined,
+      weightUnit: formData.weightUnit === 'KG' ? 'KG' : 'GRAM',
       countryOfOrigin: formData.countryOfOrigin || undefined,
-      hsCode: formData.hsCode || undefined,
       categoryId: formData.category || undefined,
-      collectionIds: formData.collections ? formData.collections.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+      vendorId: formData.vendor || undefined,
+      productType: formData.productType as 'PHYSICAL' | 'DIGITAL',
+      themeTemplate: formData.template as 'DEFAULT_PRODUCT' | 'FEATURED_PRODUCT' | 'CUSTOM_PRODUCT',
+      tags,
+      collectionIds: selectedCollectionIds.length > 0 ? selectedCollectionIds : undefined,
       media: [],
-      variants: [],
-      sizes: [],
+      variants: variantsPayload.length > 0 ? variantsPayload : [],
+      sizes: sizesPayload.length > 0 ? sizesPayload : [],
     };
     if (onSave) {
       try {
@@ -406,22 +473,19 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="">Choose a product category</option>
-                    <option value="wedding-wear">Wedding Wear</option>
-                    <option value="ethnic-wear">Ethnic Wear</option>
-                    <option value="formal-wear">Formal Wear</option>
-                    <option value="casual-wear">Casual Wear</option>
-                    <option value="traditional-sarees">Traditional Sarees</option>
-                    <option value="accessories">Accessories</option>
+                    <option value="">{loadingCategories ? 'Loading categories...' : 'Choose a product category'}</option>
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>{cat.name}</option>
+                    ))}
                   </select>
                   <p className="text-xs text-gray-500 mt-1">
-                    Determines tax rates and adds metafields to improve search, filters, and cross-channel sales
+                    {categories.length} categories available. Determines tax rates and adds metafields.
                   </p>
                 </div>
 
                 <div className="pt-2 border-t border-gray-200">
                   <h3 className="font-semibold text-gray-900 mb-4">Pricing</h3>
-                  
+
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -493,7 +557,7 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
                               const price = parseFloat(formData.price) || 0;
                               const comparePrice = parseFloat(formData.compareAtPrice) || price;
                               const discountValue = parseFloat(formData.discountValue) || 0;
-                              
+
                               if (formData.discountType === 'percentage') {
                                 const finalPrice = comparePrice - (comparePrice * discountValue / 100);
                                 return finalPrice.toFixed(2);
@@ -504,7 +568,7 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
                             })()}
                           </span>
                         </div>
-                        
+
                         {formData.discountValue && parseFloat(formData.discountValue) > 0 && (
                           <div className="flex items-center justify-between text-sm">
                             <span className="text-gray-600">
@@ -513,8 +577,8 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
                               )}
                             </span>
                             <span className="bg-green-600 text-white px-2 py-1 rounded text-xs font-semibold">
-                              {formData.discountType === 'percentage' 
-                                ? `${formData.discountValue}% OFF` 
+                              {formData.discountType === 'percentage'
+                                ? `${formData.discountValue}% OFF`
                                 : `₹${formData.discountValue} OFF`}
                             </span>
                           </div>
@@ -620,8 +684,8 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
                       + Add Barcode
                     </button>
                   )}
-                  <button 
-                    type="button" 
+                  <button
+                    type="button"
                     className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium flex items-center gap-2"
                   >
                     Sell when out of stock
@@ -673,8 +737,8 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
                         onChange={(e) => setFormData({ ...formData, weightUnit: e.target.value })}
                         className="px-3 py-2 border border-gray-300 rounded-lg"
                       >
-                        <option value="kg">kg</option>
-                        <option value="g">g</option>
+                        <option value="KG">kg</option>
+                        <option value="GRAM">g</option>
                       </select>
                     </div>
                   </div>
@@ -717,11 +781,10 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
                               setSelectedSizes([...selectedSizes, size]);
                             }
                           }}
-                          className={`px-4 py-2 rounded-lg border-2 font-medium transition-all ${
-                            selectedSizes.includes(size)
-                              ? 'border-blue-500 bg-blue-50 text-blue-700'
-                              : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
-                          }`}
+                          className={`px-4 py-2 rounded-lg border-2 font-medium transition-all ${selectedSizes.includes(size)
+                            ? 'border-blue-500 bg-blue-50 text-blue-700'
+                            : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                            }`}
                         >
                           {size}
                         </button>
@@ -838,11 +901,11 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
                                   min="0"
                                 />
                                 <p className="text-xs text-gray-500 mt-1">
-                                  {sizeMeasurements[size]?.stock && parseInt(sizeMeasurements[size]?.stock || '0') === 0 
-                                    ? '⚠️ Out of stock - Will not be shown to customers' 
+                                  {sizeMeasurements[size]?.stock && parseInt(sizeMeasurements[size]?.stock || '0') === 0
+                                    ? '⚠️ Out of stock - Will not be shown to customers'
                                     : sizeMeasurements[size]?.stock && parseInt(sizeMeasurements[size]?.stock || '0') < 5
-                                    ? '⚠️ Low stock'
-                                    : 'Number of items available'}
+                                      ? '⚠️ Low stock'
+                                      : 'Number of items available'}
                                 </p>
                               </div>
                             </div>
@@ -983,7 +1046,7 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
                                       type="button"
                                       onClick={() => {
                                         const newMeasurements = { ...sizeMeasurements };
-                                        newMeasurements[size].additional = newMeasurements[size].additional.filter((_, i) => i !== index);
+                                        newMeasurements[size].additional = newMeasurements[size].additional?.filter((_, i) => i !== index);
                                         setSizeMeasurements(newMeasurements);
                                       }}
                                       className="text-red-600 hover:text-red-700 p-2"
@@ -1027,7 +1090,7 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
               {/* Variants */}
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="font-semibold text-gray-900 mb-4">Variants</h3>
-                
+
                 {variants.map((variant, index) => (
                   <div key={index} className="border border-gray-200 rounded-lg p-4 mb-4">
                     <div className="space-y-4">
@@ -1149,9 +1212,9 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
                   onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option>Active</option>
-                  <option>Draft</option>
-                  <option>Archived</option>
+                  <option value="DRAFT">Draft</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="ARCHIVED">Archived</option>
                 </select>
               </div>
 
@@ -1188,13 +1251,15 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
                 </div>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm text-gray-600 mb-2">Type</label>
-                    <input
-                      type="text"
-                      value={formData.type}
-                      onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                    />
+                    <label className="block text-sm text-gray-600 mb-2">Product Type</label>
+                    <select
+                      value={formData.productType}
+                      onChange={(e) => setFormData({ ...formData, productType: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="PHYSICAL">Physical</option>
+                      <option value="DIGITAL">Digital</option>
+                    </select>
                   </div>
                   <div>
                     <label className="block text-sm text-gray-600 mb-2">Vendor</label>
@@ -1219,20 +1284,36 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
                   </div>
                   <div>
                     <label className="block text-sm text-gray-600 mb-2">Collections</label>
-                    <select
-                      value={formData.collections}
-                      onChange={(e) => setFormData({ ...formData, collections: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="">Select a collection</option>
-                      {collections.map(collection => (
-                        <option key={collection.id} value={collection.id}>
-                          {collection.title}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="border border-gray-300 dark:border-gray-600 rounded-lg max-h-40 overflow-y-auto">
+                      {loadingCollections ? (
+                        <p className="p-3 text-sm text-gray-400">Loading collections...</p>
+                      ) : collections.length === 0 ? (
+                        <p className="p-3 text-sm text-gray-400">No collections available</p>
+                      ) : (
+                        collections.map(collection => (
+                          <label
+                            key={collection.id}
+                            className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedCollectionIds.includes(collection.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedCollectionIds([...selectedCollectionIds, collection.id]);
+                                } else {
+                                  setSelectedCollectionIds(selectedCollectionIds.filter(id => id !== collection.id));
+                                }
+                              }}
+                              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                            />
+                            <span className="text-sm text-gray-700 dark:text-gray-300">{collection.title}</span>
+                          </label>
+                        ))
+                      )}
+                    </div>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      {collections.length} collections available
+                      {selectedCollectionIds.length} of {collections.length} collections selected
                     </p>
                   </div>
                   <div>
@@ -1241,8 +1322,18 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
                       type="text"
                       value={formData.tags}
                       onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="cotton, summer, casual (comma-separated)"
                     />
+                    {formData.tags && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {formData.tags.split(',').map((tag, i) => tag.trim() && (
+                          <span key={i} className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
+                            {tag.trim()}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1253,11 +1344,11 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
                 <select
                   value={formData.template}
                   onChange={(e) => setFormData({ ...formData, template: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option>Default product</option>
-                  <option>Featured product</option>
-                  <option>Custom template</option>
+                  <option value="DEFAULT_PRODUCT">Default product</option>
+                  <option value="FEATURED_PRODUCT">Featured product</option>
+                  <option value="CUSTOM_PRODUCT">Custom template</option>
                 </select>
               </div>
             </div>

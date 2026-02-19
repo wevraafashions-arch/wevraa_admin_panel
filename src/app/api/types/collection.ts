@@ -29,3 +29,16 @@ export interface UpdateCollectionRequest {
   type?: string;
   productIds?: string[];
 }
+
+/** Request body for POST /collections (JSON) */
+export interface CreateCollectionRequest {
+  title: string;
+  description?: string;
+  publishOnlineStore?: boolean;
+  publishPOS?: boolean;
+  image?: string;
+  themeTemplate?: string;
+  type?: 'MANUAL' | 'SMART';
+  productIds?: string[];
+}
+

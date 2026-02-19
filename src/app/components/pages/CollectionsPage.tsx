@@ -283,11 +283,10 @@ export function CollectionsPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
-                        className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                          collection.status === 'ACTIVE'
+                        className={`px-2 py-1 text-xs font-semibold rounded-full ${collection.status === 'ACTIVE'
                             ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
                             : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-                        }`}
+                          }`}
                       >
                         {collection.status}
                       </span>
@@ -337,6 +336,7 @@ export function CollectionsPage() {
       <AddCollectionModal
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
+        onCreated={fetchCollections}
       />
     </div>
   );

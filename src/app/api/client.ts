@@ -53,9 +53,11 @@ export async function apiClient<T>(
   const base = API_PREFIX.replace(/\/$/, '');
   const url = path.startsWith('http') ? path : `${base}${path.startsWith('/') ? '' : '/'}${path}`;
 
+  const isFormData = rest.body instanceof FormData;
+
   const getHeaders = (): HeadersInit => {
     const h: Record<string, string> = {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(headers as Record<string, string>),
     };
     if (!skipAuth) {

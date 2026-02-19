@@ -81,11 +81,10 @@ export function ProductDetailModal({ isOpen, onClose, product, allProducts, onPr
                   <button
                     key={idx}
                     onClick={() => setSelectedImage(idx)}
-                    className={`w-20 h-20 rounded-lg overflow-hidden border-2 transition-all ${
-                      selectedImage === idx
+                    className={`w-20 h-20 rounded-lg overflow-hidden border-2 transition-all ${selectedImage === idx
                         ? 'border-blue-600 dark:border-blue-500'
                         : 'border-gray-200 dark:border-gray-600 hover:border-gray-400'
-                    }`}
+                      }`}
                   >
                     <img src={img} alt={`View ${idx + 1}`} className="w-full h-full object-cover" />
                   </button>
@@ -100,13 +99,12 @@ export function ProductDetailModal({ isOpen, onClose, product, allProducts, onPr
                 <span className="text-sm text-blue-600 dark:text-blue-400 font-medium">
                   {product.category?.name ?? '—'}
                 </span>
-                <span className={`px-3 py-1 text-xs font-semibold rounded-full ${
-                  status === 'In Stock'
+                <span className={`px-3 py-1 text-xs font-semibold rounded-full ${status === 'In Stock'
                     ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                     : status === 'Low Stock'
-                    ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
-                    : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                }`}>
+                      ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                      : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                  }`}>
                   {status}
                 </span>
               </div>
@@ -137,7 +135,7 @@ export function ProductDetailModal({ isOpen, onClose, product, allProducts, onPr
               <div>
                 <h3 className="font-semibold text-gray-900 dark:text-white mb-2">Description</h3>
                 <p className="text-gray-600 dark:text-gray-400 text-sm leading-relaxed">
-                  {product.shortDescription || product.longDescription || `Premium quality ${product.title}.`}
+                  {product.productDescription || `Premium quality ${product.title}.`}
                 </p>
               </div>
 
@@ -234,13 +232,12 @@ export function ProductDetailModal({ isOpen, onClose, product, allProducts, onPr
                         <span className="text-lg font-bold text-gray-900 dark:text-white">
                           {productPrice(relatedProduct)}
                         </span>
-                        <span className={`text-xs px-2 py-1 rounded-full ${
-                          stockStatus(relatedProduct) === 'In Stock'
+                        <span className={`text-xs px-2 py-1 rounded-full ${stockStatus(relatedProduct) === 'In Stock'
                             ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
                             : stockStatus(relatedProduct) === 'Low Stock'
-                            ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
-                            : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
-                        }`}>
+                              ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
+                              : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
+                          }`}>
                           {productStock(relatedProduct)}
                         </span>
                       </div>
