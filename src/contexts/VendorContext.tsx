@@ -59,7 +59,7 @@ interface VendorContextType {
   refetch: () => Promise<void>;
   addVendor: (data: CreateVendorRequest) => Promise<void>;
   updateVendor: (id: string, data: UpdateVendorRequest) => Promise<void>;
-  deleteVendor: (id: string) => Promise<void>;
+  deleteVendor: (id: string) => void;
   getVendorById: (id: string) => Vendor | undefined;
   getVendorsByCategory: (category: string) => Vendor[];
 }
@@ -110,17 +110,8 @@ export function VendorProvider({ children }: { children: ReactNode }) {
     []
   );
 
-  const deleteVendor = useCallback(async (id: string) => {
-    try {
-      await vendorService.delete(id);
-      setVendors((prev) => prev.filter((v) => v.id !== id));
-    } catch (e) {
-      const message =
-        e && typeof e === 'object' && 'message' in e
-          ? String((e as { message: string }).message)
-          : 'Failed to delete vendor';
-      setError(message);
-    }
+  const deleteVendor = useCallback((id: string) => {
+    setVendors((prev) => prev.filter((v) => v.id !== id));
   }, []);
 
   const getVendorById = useCallback(

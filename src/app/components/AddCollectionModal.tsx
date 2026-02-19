@@ -1,6 +1,8 @@
-import { X, Bold, Italic, Underline, ChevronDown, Search, Image as ImageIcon, Tag, Loader2 } from 'lucide-react';
-import { useState, useRef } from 'react';
+import { X, Bold, Italic, Underline, ChevronDown, Search, Image as ImageIcon, Tag, Loader2, Package } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { collectionsService } from '../api/services/collectionsService';
+import { productsService } from '../api/services/productsService';
+import type { Product } from '../api/types/product';
 import { ApiError } from '../api/client';
 
 interface AddCollectionModalProps {
@@ -24,6 +26,63 @@ export function AddCollectionModal({ isOpen, onClose, onCreated }: AddCollection
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Products: fetch list, search, sort, selected for collection
+  const [products, setProducts] = useState<Product[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [productSearch, setProductSearch] = useState('');
+  const [productSort, setProductSort] = useState<'title' | 'mrp' | 'newest'>('title');
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+
+  const fetchProducts = useCallback(async () => {
+    setProductsLoading(true);
+    try {
+      const list = await productsService.getList();
+      setProducts(Array.isArray(list) ? list : []);
+    } catch {
+      setProducts([]);
+    } finally {
+      setProductsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchProducts();
+    }
+  }, [isOpen, fetchProducts]);
+
+  const filteredAndSortedProducts = products
+    .filter(
+      (p) =>
+        !productSearch.trim() ||
+        p.title?.toLowerCase().includes(productSearch.toLowerCase()) ||
+        p.sku?.toLowerCase().includes(productSearch.toLowerCase())
+    )
+    .sort((a, b) => {
+      if (productSort === 'title') return (a.title ?? '').localeCompare(b.title ?? '');
+      if (productSort === 'mrp') return (a.mrp ?? 0) - (b.mrp ?? 0);
+      return (new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
+    });
+
+  const toggleProduct = (id: string) => {
+    setSelectedProductIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const resetForm = () => {
+    setTitle('');
+    setDescription('');
+    setCollectionType('MANUAL');
+    setThemeTemplate('default');
+    setSalesChannels({ onlineStore: false, pointOfSale: false });
+    setProductSearch('');
+    setProductSort('title');
+    setSelectedProductIds([]);
+    removeImage();
+    setError(null);
+  };
+
   if (!isOpen) return null;
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -44,16 +103,6 @@ export function AddCollectionModal({ isOpen, onClose, onCreated }: AddCollection
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const resetForm = () => {
-    setTitle('');
-    setDescription('');
-    setCollectionType('MANUAL');
-    setThemeTemplate('default');
-    setSalesChannels({ onlineStore: false, pointOfSale: false });
-    removeImage();
-    setError(null);
-  };
-
   const handleDiscard = () => {
     resetForm();
     onClose();
@@ -69,27 +118,22 @@ export function AddCollectionModal({ isOpen, onClose, onCreated }: AddCollection
     setError(null);
 
     try {
+      const common = {
+        title: title.trim(),
+        description: description.trim() || undefined,
+        type: collectionType,
+        themeTemplate: themeTemplate || undefined,
+        publishOnlineStore: salesChannels.onlineStore,
+        publishPOS: salesChannels.pointOfSale,
+        productIds: selectedProductIds.length > 0 ? selectedProductIds : undefined,
+      };
       if (imageFile) {
-        // Use multipart endpoint
         await collectionsService.createWithImage({
-          title: title.trim(),
-          description: description.trim() || undefined,
-          type: collectionType,
-          themeTemplate: themeTemplate || undefined,
-          publishOnlineStore: salesChannels.onlineStore,
-          publishPOS: salesChannels.pointOfSale,
+          ...common,
           image: imageFile,
         });
       } else {
-        // Use JSON endpoint
-        await collectionsService.create({
-          title: title.trim(),
-          description: description.trim() || undefined,
-          type: collectionType,
-          themeTemplate: themeTemplate || undefined,
-          publishOnlineStore: salesChannels.onlineStore,
-          publishPOS: salesChannels.pointOfSale,
-        });
+        await collectionsService.create(common);
       }
 
       resetForm();
@@ -256,34 +300,86 @@ export function AddCollectionModal({ isOpen, onClose, onCreated }: AddCollection
 
             {/* Products */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-              <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-4">Products</h3>
+              <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-4">
+                Products {selectedProductIds.length > 0 && `(${selectedProductIds.length} selected)`}
+              </h3>
 
-              <div className="flex items-center gap-3 mb-6">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-4">
                 <div className="flex-1 relative">
                   <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
-                    placeholder="Search products"
+                    placeholder="Search by title or SKU..."
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
                     className="w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   />
                 </div>
-                <button className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-gray-700 dark:text-gray-300">
-                  Browse
-                </button>
-                <select className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[160px] bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
-                  <option>Sort: Best selling</option>
-                  <option>Sort: Newest</option>
-                  <option>Sort: Price (Low to High)</option>
-                  <option>Sort: Price (High to Low)</option>
+                <select
+                  value={productSort}
+                  onChange={(e) => setProductSort(e.target.value as 'title' | 'mrp' | 'newest')}
+                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[160px] bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                >
+                  <option value="title">Sort: Title A–Z</option>
+                  <option value="mrp">Sort: Price (Low to High)</option>
+                  <option value="newest">Sort: Newest</option>
                 </select>
               </div>
 
-              {/* Empty State */}
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <Tag className="w-16 h-16 text-gray-300 dark:text-gray-600 mb-4" />
-                <p className="text-gray-900 dark:text-white font-medium mb-1">There are no products in this collection.</p>
-                <p className="text-gray-600 dark:text-gray-400 text-sm">Search or browse to add products.</p>
-              </div>
+              {productsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+                </div>
+              ) : filteredAndSortedProducts.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <Tag className="w-16 h-16 text-gray-300 dark:text-gray-600 mb-4" />
+                  <p className="text-gray-900 dark:text-white font-medium mb-1">
+                    {products.length === 0 ? 'No products in store yet.' : 'No products match your search.'}
+                  </p>
+                  <p className="text-gray-600 dark:text-gray-400 text-sm">
+                    {products.length === 0 ? 'Add products first, then they will appear here.' : 'Try a different search or sort.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="border border-gray-200 dark:border-gray-600 rounded-lg divide-y divide-gray-200 dark:divide-gray-600 max-h-[320px] overflow-y-auto">
+                  {filteredAndSortedProducts.map((product) => {
+                    const isSelected = selectedProductIds.includes(product.id);
+                    const thumb = product.media?.[0]?.url;
+                    return (
+                      <label
+                        key={product.id}
+                        className={`flex items-center gap-3 p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleProduct(product.id)}
+                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                        />
+                        <div className="w-10 h-10 rounded bg-gray-200 dark:bg-gray-600 flex-shrink-0 overflow-hidden">
+                          {thumb ? (
+                            <img src={thumb} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <Package className="w-5 h-5 text-gray-400" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                            {product.title}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                            {product.sku && `SKU: ${product.sku}`}
+                            {product.sku && product.mrp != null && ' · '}
+                            {product.mrp != null && `₹${product.mrp}`}
+                          </p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 

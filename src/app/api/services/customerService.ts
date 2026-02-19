@@ -25,8 +25,4 @@ export const customerService = {
       body: JSON.stringify(body),
     });
   },
-
-  async delete(id: string): Promise<void> {
-    await apiClient<void>(`${CUSTOMERS_PATH}/${id}`, { method: 'DELETE' });
-  },
 };

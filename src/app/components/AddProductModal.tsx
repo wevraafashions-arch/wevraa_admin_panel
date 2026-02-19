@@ -66,7 +66,8 @@ const QuillEditor = ({ value, onChange }: { value: string; onChange: (value: str
   );
 };
 
-import type { Product, CreateProductRequest, UpdateProductRequest } from '../api/types/product';
+import type { Product, CreateProductRequest, UpdateProductRequest, ProductMediaItem } from '../api/types/product';
+import { uploadFile } from '../api/services/uploadService';
 
 interface AddProductModalProps {
   isOpen: boolean;
@@ -174,6 +175,11 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
   const [showMeasurementFields, setShowMeasurementFields] = useState(false);
   const [newMeasurementName, setNewMeasurementName] = useState<{ [key: string]: string }>({});
 
+  // Product media: file (for new) or url (when editing / after upload), preview, alt, order
+  type MediaEntry = { id: string; file?: File; url?: string; preview: string; alt: string; order: number };
+  const [productMedia, setProductMedia] = useState<MediaEntry[]>([]);
+  const productMediaInputRef = useRef<HTMLInputElement>(null);
+
   // Pre-fill form when editing (API Product type)
   useEffect(() => {
     if (editingProduct) {
@@ -209,6 +215,16 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
         shippingAndReturn: editingProduct.shippingAndReturns ?? '',
       });
       setSelectedCollectionIds((editingProduct.collections ?? []).map((c) => c.id));
+      const media = editingProduct.media ?? [];
+      setProductMedia(
+        media.map((m, i) => ({
+          id: `existing-${i}-${m.url}`,
+          url: m.url,
+          preview: m.url,
+          alt: m.alt ?? '',
+          order: m.order ?? i,
+        }))
+      );
     } else if (!editingProduct) {
       // Reset form when not editing
       setFormData({
@@ -243,8 +259,40 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
         shippingAndReturn: '',
       });
       setSelectedCollectionIds([]);
+      setProductMedia([]);
     }
   }, [editingProduct]);
+
+  const handleMediaFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length) return;
+    const newEntries: MediaEntry[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!file.type.startsWith('image/')) continue;
+      newEntries.push({
+        id: `file-${Date.now()}-${i}`,
+        file,
+        preview: URL.createObjectURL(file),
+        alt: '',
+        order: productMedia.length + i,
+      });
+    }
+    setProductMedia((prev) => [...prev, ...newEntries]);
+    e.target.value = '';
+  };
+
+  const removeMedia = (id: string) => {
+    setProductMedia((prev) => {
+      const item = prev.find((m) => m.id === id);
+      if (item?.file && item.preview.startsWith('blob:')) URL.revokeObjectURL(item.preview);
+      return prev.filter((m) => m.id !== id);
+    });
+  };
+
+  const updateMediaAlt = (id: string, alt: string) => {
+    setProductMedia((prev) => prev.map((m) => (m.id === id ? { ...m, alt } : m)));
+  };
 
   // Predefined shop locations for dropdown
   const shopLocations = [
@@ -310,6 +358,27 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
         }))
       );
 
+    // Upload new media files and build media array
+    let mediaPayload: ProductMediaItem[] = [];
+    if (productMedia.length > 0) {
+      const uploaded: ProductMediaItem[] = [];
+      for (let i = 0; i < productMedia.length; i++) {
+        const m = productMedia[i];
+        if (m.url && !m.file) {
+          uploaded.push({ url: m.url, type: 'image', alt: m.alt, order: i });
+        } else if (m.file) {
+          try {
+            const url = await uploadFile(m.file);
+            uploaded.push({ url, type: 'image', alt: m.alt || undefined, order: i });
+          } catch (err) {
+            if (onSave) throw err;
+            return;
+          }
+        }
+      }
+      mediaPayload = uploaded;
+    }
+
     const payload: CreateProductRequest = {
       title: formData.title,
       productDescription: formData.description || undefined,
@@ -338,7 +407,7 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
       themeTemplate: formData.template as 'DEFAULT_PRODUCT' | 'FEATURED_PRODUCT' | 'CUSTOM_PRODUCT',
       tags,
       collectionIds: selectedCollectionIds.length > 0 ? selectedCollectionIds : undefined,
-      media: [],
+      media: mediaPayload.length > 0 ? mediaPayload : undefined,
       variants: variantsPayload.length > 0 ? variantsPayload : [],
       sizes: sizesPayload.length > 0 ? sizesPayload : [],
     };
@@ -439,27 +508,52 @@ export function AddProductModal({ isOpen, onClose, editingProduct, onSave, isSav
               {/* Media */}
               <div className="bg-white rounded-lg shadow p-6">
                 <label className="block text-sm font-medium text-gray-700 mb-3">Media</label>
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center">
-                  <div className="flex flex-col items-center gap-3">
-                    <ImageIcon className="w-12 h-12 text-gray-400" />
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        className="text-blue-600 hover:text-blue-700 font-medium"
-                      >
-                        Upload new
-                      </button>
-                      <span className="text-gray-500">or</span>
-                      <button
-                        type="button"
-                        className="text-blue-600 hover:text-blue-700 font-medium"
-                      >
-                        Select existing
-                      </button>
-                    </div>
-                    <p className="text-sm text-gray-500">Accepts images, videos, or 3D models</p>
-                  </div>
+                <input
+                  ref={productMediaInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handleMediaFileSelect}
+                />
+                <div
+                  className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-blue-400 hover:bg-gray-50 transition-colors"
+                  onClick={() => productMediaInputRef.current?.click()}
+                >
+                  <Upload className="w-10 h-10 text-gray-400 mx-auto mb-2" />
+                  <p className="text-blue-600 hover:text-blue-700 font-medium">Upload images</p>
+                  <p className="text-sm text-gray-500 mt-1">Click or drop images here. Accepted: JPG, PNG, WebP, GIF</p>
                 </div>
+                {productMedia.length > 0 && (
+                  <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                    {productMedia.map((m) => (
+                      <div key={m.id} className="relative group border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
+                        <img
+                          src={m.preview}
+                          alt={m.alt || 'Product'}
+                          className="w-full aspect-square object-cover"
+                        />
+                        <div className="p-2">
+                          <input
+                            type="text"
+                            value={m.alt}
+                            onChange={(e) => updateMediaAlt(m.id, e.target.value)}
+                            placeholder="Alt text"
+                            className="w-full text-xs px-2 py-1 border border-gray-200 rounded"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeMedia(m.id)}
+                          className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                          aria-label="Remove"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Category & Price */}
