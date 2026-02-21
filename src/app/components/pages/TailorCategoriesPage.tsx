@@ -3,6 +3,7 @@ import { Plus, Edit, Trash2, ArrowLeft, ChevronRight, X, GripVertical } from 'lu
 import { useTailorCategories, Category, SubCategory } from '@/contexts/TailorCategoriesContext';
 import { DndProvider, useDrag, useDrop } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
+import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
 
 const ItemTypes = {
   CATEGORY: 'category',
@@ -288,6 +289,10 @@ export function TailorCategoriesPage() {
     description: '',
     status: 'Active' as 'Active' | 'Inactive',
   });
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<
+    { type: 'category'; id: number } | { type: 'subcategory'; id: number; categoryId: number } | null
+  >(null);
 
   // Drag and drop handlers
   const moveCategoryHandler = (dragIndex: number, hoverIndex: number) => {
@@ -331,13 +336,28 @@ export function TailorCategoriesPage() {
     setCategoryForm({ name: '', description: '', status: 'Active' });
   };
 
-  const handleDeleteCategory = (categoryId: number) => {
-    if (confirm('Are you sure you want to delete this category? All sub-categories will also be deleted.')) {
-      setCategories(categories.filter(cat => cat.id !== categoryId));
+  const openDeleteCategoryDialog = (categoryId: number) => {
+    setPendingDelete({ type: 'category', id: categoryId });
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!pendingDelete) return;
+    if (pendingDelete.type === 'category') {
+      setCategories(categories.filter(cat => cat.id !== pendingDelete.id));
       const newSubCategoriesData = { ...subCategoriesData };
-      delete newSubCategoriesData[categoryId];
+      delete newSubCategoriesData[pendingDelete.id];
       setSubCategoriesData(newSubCategoriesData);
+    } else {
+      setSubCategoriesData({
+        ...subCategoriesData,
+        [pendingDelete.categoryId]: subCategoriesData[pendingDelete.categoryId].filter(
+          sub => sub.id !== pendingDelete.id
+        ),
+      });
     }
+    setDeleteDialogOpen(false);
+    setPendingDelete(null);
   };
 
   const openEditCategoryModal = (category: Category) => {
@@ -390,14 +410,10 @@ export function TailorCategoriesPage() {
     setSubCategoryForm({ name: '', description: '', status: 'Active' });
   };
 
-  const handleDeleteSubCategory = (subcategoryId: number) => {
+  const openDeleteSubCategoryDialog = (subcategoryId: number) => {
     if (!selectedCategory) return;
-    if (confirm('Are you sure you want to delete this sub-category?')) {
-      setSubCategoriesData({
-        ...subCategoriesData,
-        [selectedCategory.id]: subCategoriesData[selectedCategory.id].filter(sub => sub.id !== subcategoryId),
-      });
-    }
+    setPendingDelete({ type: 'subcategory', id: subcategoryId, categoryId: selectedCategory.id });
+    setDeleteDialogOpen(true);
   };
 
   const openEditSubCategoryModal = (subcategory: SubCategory) => {
@@ -492,7 +508,7 @@ export function TailorCategoriesPage() {
                     index={index}
                     onSelect={setSelectedCategory}
                     onEdit={openEditCategoryModal}
-                    onDelete={handleDeleteCategory}
+                    onDelete={openDeleteCategoryDialog}
                     moveCategory={moveCategoryHandler}
                   />
                 ))}
@@ -532,7 +548,7 @@ export function TailorCategoriesPage() {
                     subcategory={subcategory}
                     index={index}
                     onEdit={openEditSubCategoryModal}
-                    onDelete={handleDeleteSubCategory}
+                    onDelete={openDeleteSubCategoryDialog}
                     moveSubCategory={moveSubCategoryHandler}
                   />
                 ))}
@@ -830,6 +846,21 @@ export function TailorCategoriesPage() {
             </div>
           </div>
         )}
+
+        <ConfirmDeleteDialog
+          open={deleteDialogOpen}
+          onOpenChange={(open) => {
+            setDeleteDialogOpen(open);
+            if (!open) setPendingDelete(null);
+          }}
+          title={pendingDelete?.type === 'category' ? 'Delete category' : 'Delete sub-category'}
+          description={
+            pendingDelete?.type === 'category'
+              ? 'Are you sure you want to delete this category? All sub-categories will also be deleted. This action cannot be undone.'
+              : 'Are you sure you want to delete this sub-category? This action cannot be undone.'
+          }
+          onConfirm={handleConfirmDelete}
+        />
       </div>
     </DndProvider>
   );

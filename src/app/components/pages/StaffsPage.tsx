@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Plus, Edit2, Trash2, X, Briefcase, Settings } from 'lucide-react';
+import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
 
 interface FieldConfig {
   id: string;
@@ -19,6 +20,8 @@ interface StaffCategory {
 }
 
 export function StaffsPage() {
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pendingDeleteCategoryId, setPendingDeleteCategoryId] = useState<string | null>(null);
   const [categories, setCategories] = useState<StaffCategory[]>([
     {
       id: '1',
@@ -156,9 +159,16 @@ export function StaffsPage() {
     setIsModalOpen(false);
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this staff category?')) {
-      setCategories(categories.filter(cat => cat.id !== id));
+  const openDeleteDialog = (id: string) => {
+    setPendingDeleteCategoryId(id);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (pendingDeleteCategoryId) {
+      setCategories(categories.filter(cat => cat.id !== pendingDeleteCategoryId));
+      setDeleteDialogOpen(false);
+      setPendingDeleteCategoryId(null);
     }
   };
 
@@ -295,7 +305,7 @@ export function StaffsPage() {
                     <Edit2 className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={() => handleDelete(category.id)}
+                    onClick={() => openDeleteDialog(category.id)}
                     className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -515,6 +525,17 @@ export function StaffsPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDeleteDialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) setPendingDeleteCategoryId(null);
+        }}
+        title="Delete staff category"
+        description="Are you sure you want to delete this staff category? This action cannot be undone."
+        onConfirm={handleConfirmDelete}
+      />
     </div>
   );
 }

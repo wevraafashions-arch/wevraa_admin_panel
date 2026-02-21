@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { Plus, Edit, Trash2, ArrowLeft, ChevronRight, AlertCircle, CheckCircle, Clock, Package, Truck, X, GripVertical, Layers } from 'lucide-react';
 import { DndProvider, useDrag, useDrop } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
+import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
 
 interface OrderStatus {
   id: number;
@@ -335,6 +336,8 @@ export function StatusManagementPage() {
   ];
 
   const [statuses, setStatuses] = useState(statusesDataInitial);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pendingDeleteStatus, setPendingDeleteStatus] = useState<{ statusId: number; categoryId: number; subCategoryId: number } | null>(null);
 
   const getColorClasses = (color: string) => {
     const colorMap: { [key: string]: string } = {
@@ -363,18 +366,31 @@ export function StatusManagementPage() {
     return <Icon className="w-4 h-4" />;
   };
 
-  const handleDeleteStatus = (statusId: number) => {
-    if (selectedCategory && selectedSubCategory && confirm('Are you sure you want to delete this status?')) {
-      const categoryStatuses = statuses[selectedCategory.id] || {};
-      const subCategoryStatuses = categoryStatuses[selectedSubCategory.id] || getDefaultStatuses();
-      
+  const openDeleteStatusDialog = (statusId: number) => {
+    if (selectedCategory && selectedSubCategory) {
+      setPendingDeleteStatus({
+        statusId,
+        categoryId: selectedCategory.id,
+        subCategoryId: selectedSubCategory.id,
+      });
+      setDeleteDialogOpen(true);
+    }
+  };
+
+  const handleConfirmDeleteStatus = () => {
+    if (pendingDeleteStatus) {
+      const { statusId, categoryId, subCategoryId } = pendingDeleteStatus;
+      const categoryStatuses = statuses[categoryId] || {};
+      const subCategoryStatuses = categoryStatuses[subCategoryId] || getDefaultStatuses();
       setStatuses({
         ...statuses,
-        [selectedCategory.id]: {
+        [categoryId]: {
           ...categoryStatuses,
-          [selectedSubCategory.id]: subCategoryStatuses.filter(s => s.id !== statusId)
-        }
+          [subCategoryId]: subCategoryStatuses.filter(s => s.id !== statusId),
+        },
       });
+      setDeleteDialogOpen(false);
+      setPendingDeleteStatus(null);
     }
   };
 
@@ -771,7 +787,7 @@ export function StatusManagementPage() {
                         </button>
                         {!status.isDefault && (
                           <button
-                            onClick={() => handleDeleteStatus(status.id)}
+                            onClick={() => openDeleteStatusDialog(status.id)}
                             className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                             title="Delete status"
                           >
@@ -812,7 +828,7 @@ export function StatusManagementPage() {
                     index={index}
                     moveStatus={moveStatus}
                     onEdit={() => openEditModal(status)}
-                    onDelete={() => handleDeleteStatus(status.id)}
+                    onDelete={() => openDeleteStatusDialog(status.id)}
                     getColorClasses={getColorClasses}
                     getIconComponent={getIconComponent}
                   />
@@ -1153,6 +1169,17 @@ export function StatusManagementPage() {
           </div>
         </div>
       </div>
+
+      <ConfirmDeleteDialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) setPendingDeleteStatus(null);
+        }}
+        title="Delete status"
+        description="Are you sure you want to delete this status? This action cannot be undone."
+        onConfirm={handleConfirmDeleteStatus}
+      />
     </DndProvider>
   );
 }

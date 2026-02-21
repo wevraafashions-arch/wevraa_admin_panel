@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Plus, Edit, Trash2, X, Save } from 'lucide-react';
+import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
 
 interface GSTRate {
   id: number;
@@ -21,6 +22,8 @@ export function TaxSettingsPage() {
   const [showHSNModal, setShowHSNModal] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{ type: 'gst'; id: number } | { type: 'hsn'; id: number } | null>(null);
 
   const [gstRates, setGstRates] = useState<GSTRate[]>([
     { id: 1, name: 'GST 5%', percentage: 5, isDefault: false },
@@ -106,10 +109,20 @@ export function TaxSettingsPage() {
     }
   };
 
-  const handleDeleteGSTRate = (rateId: number) => {
-    if (window.confirm('Are you sure you want to delete this GST rate?')) {
-      setGstRates(gstRates.filter(g => g.id !== rateId));
+  const openDeleteGSTRateDialog = (rateId: number) => {
+    setPendingDelete({ type: 'gst', id: rateId });
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDeleteTax = () => {
+    if (!pendingDelete) return;
+    if (pendingDelete.type === 'gst') {
+      setGstRates(gstRates.filter(g => g.id !== pendingDelete.id));
+    } else {
+      setHsnCodes(hsnCodes.filter(h => h.id !== pendingDelete.id));
     }
+    setDeleteDialogOpen(false);
+    setPendingDelete(null);
   };
 
   const resetGSTModal = () => {
@@ -169,10 +182,9 @@ export function TaxSettingsPage() {
     }
   };
 
-  const handleDeleteHSNCode = (codeId: number) => {
-    if (window.confirm('Are you sure you want to delete this HSN code?')) {
-      setHsnCodes(hsnCodes.filter(h => h.id !== codeId));
-    }
+  const openDeleteHSNCodeDialog = (codeId: number) => {
+    setPendingDelete({ type: 'hsn', id: codeId });
+    setDeleteDialogOpen(true);
   };
 
   const resetHSNModal = () => {
@@ -268,7 +280,7 @@ export function TaxSettingsPage() {
                             <Edit className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => handleDeleteGSTRate(rate.id)}
+                            onClick={() => openDeleteGSTRateDialog(rate.id)}
                             className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -325,7 +337,7 @@ export function TaxSettingsPage() {
                             <Edit className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => handleDeleteHSNCode(code.id)}
+                            onClick={() => openDeleteHSNCodeDialog(code.id)}
                             className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -489,6 +501,21 @@ export function TaxSettingsPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDeleteDialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) setPendingDelete(null);
+        }}
+        title={pendingDelete?.type === 'gst' ? 'Delete GST rate' : 'Delete HSN code'}
+        description={
+          pendingDelete?.type === 'gst'
+            ? 'Are you sure you want to delete this GST rate? This action cannot be undone.'
+            : 'Are you sure you want to delete this HSN code? This action cannot be undone.'
+        }
+        onConfirm={handleConfirmDeleteTax}
+      />
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Plus, Edit, Trash2, Image as ImageIcon, Tag, Package } from 'lucide-react';
 import { AddOnModal } from '../AddOnModal';
 import { DesignGalleryModal } from '../DesignGalleryModal';
+import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
 
 interface AddOn {
   id: number;
@@ -38,6 +39,8 @@ export function AddOnsPage() {
   const [isGalleryModalOpen, setIsGalleryModalOpen] = useState(false);
   const [galleryCallback, setGalleryCallback] = useState<((images: string[]) => void) | null>(null);
   const [editingAddOn, setEditingAddOn] = useState<AddOn | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pendingDeleteAddOnId, setPendingDeleteAddOnId] = useState<number | null>(null);
 
   const [addOns, setAddOns] = useState<AddOn[]>([
     {
@@ -146,9 +149,16 @@ export function AddOnsPage() {
     setIsAddModalOpen(true);
   };
 
-  const handleDelete = (id: number) => {
-    if (confirm('Are you sure you want to delete this add-on configuration?')) {
-      setAddOns(addOns.filter(a => a.id !== id));
+  const openDeleteDialog = (id: number) => {
+    setPendingDeleteAddOnId(id);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (pendingDeleteAddOnId !== null) {
+      setAddOns(addOns.filter(a => a.id !== pendingDeleteAddOnId));
+      setDeleteDialogOpen(false);
+      setPendingDeleteAddOnId(null);
     }
   };
 
@@ -352,7 +362,7 @@ export function AddOnsPage() {
                         <Edit className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleDelete(addOn.id)}
+                        onClick={() => openDeleteDialog(addOn.id)}
                         className="text-red-600 hover:text-red-900"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -406,6 +416,17 @@ export function AddOnsPage() {
           }
           setIsGalleryModalOpen(false);
         }}
+      />
+
+      <ConfirmDeleteDialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) setPendingDeleteAddOnId(null);
+        }}
+        title="Delete add-on configuration"
+        description="Are you sure you want to delete this add-on configuration? This action cannot be undone."
+        onConfirm={handleConfirmDelete}
       />
     </div>
   );

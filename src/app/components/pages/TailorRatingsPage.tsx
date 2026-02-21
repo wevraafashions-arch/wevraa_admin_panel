@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { Star, Settings, Save, RotateCcw, MessageSquare, Image as ImageIcon } from 'lucide-react';
 import { useReviewSettings } from '@/contexts/ReviewSettingsContext';
 import { ReviewSettings } from '@/contexts/ReviewSettingsContext';
+import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
 
 export function TailorRatingsPage() {
   const { settings, updateSettings } = useReviewSettings();
   const [localSettings, setLocalSettings] = useState<ReviewSettings>(settings);
   const [hasChanges, setHasChanges] = useState(false);
   const [activeTab, setActiveTab] = useState<'rating-fields' | 'review-text' | 'photos' | 'general'>('rating-fields');
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
 
   const handleRatingFieldChange = (
     fieldName: keyof ReviewSettings['ratingFields'],
@@ -72,60 +74,64 @@ export function TailorRatingsPage() {
     alert('Review settings saved successfully!');
   };
 
+  const defaultSettings: ReviewSettings = {
+    ratingFields: {
+      overallRating: {
+        enabled: true,
+        required: true,
+        label: 'How would you rate this service?',
+      },
+      fitRating: {
+        enabled: true,
+        required: true,
+        label: 'How would you rate the fit?',
+      },
+      finishingRating: {
+        enabled: true,
+        required: true,
+        label: 'How would you rate the finishing?',
+      },
+      fabricQualityRating: {
+        enabled: false,
+        required: false,
+        label: 'How would you rate the fabric quality?',
+      },
+      timelinessRating: {
+        enabled: false,
+        required: false,
+        label: 'How would you rate the delivery timeliness?',
+      },
+      customerServiceRating: {
+        enabled: false,
+        required: false,
+        label: 'How would you rate the customer service?',
+      },
+    },
+    reviewText: {
+      enabled: true,
+      required: true,
+      minLength: 10,
+      maxLength: 500,
+      placeholder: 'Share your experience with the tailoring service, quality, delivery, and overall satisfaction...',
+    },
+    photos: {
+      enabled: true,
+      required: false,
+      maxPhotos: 5,
+    },
+    autoPublish: false,
+    moderationEnabled: true,
+    allowAnonymous: false,
+  };
+
+  const handleConfirmReset = () => {
+    setLocalSettings(defaultSettings);
+    setHasChanges(true);
+    setResetDialogOpen(false);
+  };
+
   const handleReset = () => {
-    if (confirm('Are you sure you want to reset to default settings?')) {
-      const defaultSettings: ReviewSettings = {
-        ratingFields: {
-          overallRating: {
-            enabled: true,
-            required: true,
-            label: 'How would you rate this service?',
-          },
-          fitRating: {
-            enabled: true,
-            required: true,
-            label: 'How would you rate the fit?',
-          },
-          finishingRating: {
-            enabled: true,
-            required: true,
-            label: 'How would you rate the finishing?',
-          },
-          fabricQualityRating: {
-            enabled: false,
-            required: false,
-            label: 'How would you rate the fabric quality?',
-          },
-          timelinessRating: {
-            enabled: false,
-            required: false,
-            label: 'How would you rate the delivery timeliness?',
-          },
-          customerServiceRating: {
-            enabled: false,
-            required: false,
-            label: 'How would you rate the customer service?',
-          },
-        },
-        reviewText: {
-          enabled: true,
-          required: true,
-          minLength: 10,
-          maxLength: 500,
-          placeholder: 'Share your experience with the tailoring service, quality, delivery, and overall satisfaction...',
-        },
-        photos: {
-          enabled: true,
-          required: false,
-          maxPhotos: 5,
-        },
-        autoPublish: false,
-        moderationEnabled: true,
-        allowAnonymous: false,
-      };
-      setLocalSettings(defaultSettings);
-      setHasChanges(true);
-    }
+    setResetDialogOpen(true);
   };
 
   const getRatingFieldDisplayName = (fieldName: string) => {
@@ -701,6 +707,14 @@ export function TailorRatingsPage() {
           )}
         </div>
       </div>
+
+      <ConfirmDeleteDialog
+        open={resetDialogOpen}
+        onOpenChange={setResetDialogOpen}
+        title="Reset to default settings"
+        description="Are you sure you want to reset to default settings? Your current settings will be lost. You can save after reset to apply."
+        onConfirm={handleConfirmReset}
+      />
     </div>
   );
 }

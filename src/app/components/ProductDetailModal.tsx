@@ -163,7 +163,7 @@ export function ProductDetailModal({ isOpen, onClose, product, allProducts, onPr
 
               {/* Action Buttons */}
               <div className="flex gap-3 pt-4">
-                <button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg flex items-center justify-center gap-2 transition-colors">
+                {/* <button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg flex items-center justify-center gap-2 transition-colors">
                   <ShoppingCart className="w-5 h-5" />
                   Add to Cart
                 </button>
@@ -172,7 +172,7 @@ export function ProductDetailModal({ isOpen, onClose, product, allProducts, onPr
                 </button>
                 <button className="bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 font-semibold py-3 px-4 rounded-lg transition-colors">
                   <Share2 className="w-5 h-5" />
-                </button>
+                </button> */}
                 {onManageRelatedClick && (
                   <button
                     onClick={() => onManageRelatedClick(product)}

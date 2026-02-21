@@ -16,6 +16,7 @@ import {
   Download
 } from 'lucide-react';
 import { useTailorCategories } from '@/contexts/TailorCategoriesContext';
+import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
 
 interface GalleryImage {
   id: string;
@@ -100,6 +101,8 @@ export function TailorGalleryPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showImagePreview, setShowImagePreview] = useState(false);
   const [previewImage, setPreviewImage] = useState<GalleryImage | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pendingDeleteImageId, setPendingDeleteImageId] = useState<string | null>(null);
 
   // Get first category for default
   const defaultCategory = activeCategories.length > 0 ? activeCategories[0].name : '';
@@ -190,9 +193,16 @@ export function TailorGalleryPage() {
     setSelectedImage(null);
   };
 
-  const handleDeleteImage = (imageId: string) => {
-    if (confirm('Are you sure you want to delete this image?')) {
-      setImages(images.filter(img => img.id !== imageId));
+  const openDeleteImageDialog = (imageId: string) => {
+    setPendingDeleteImageId(imageId);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDeleteImage = () => {
+    if (pendingDeleteImageId) {
+      setImages(images.filter(img => img.id !== pendingDeleteImageId));
+      setDeleteDialogOpen(false);
+      setPendingDeleteImageId(null);
     }
   };
 
@@ -435,7 +445,7 @@ export function TailorGalleryPage() {
                     Edit
                   </button>
                   <button
-                    onClick={() => handleDeleteImage(image.id)}
+                    onClick={() => openDeleteImageDialog(image.id)}
                     className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm border border-red-300 dark:border-red-600 text-red-700 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -516,7 +526,7 @@ export function TailorGalleryPage() {
                         <Edit className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleDeleteImage(image.id)}
+                        onClick={() => openDeleteImageDialog(image.id)}
                         className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
                         title="Delete"
                       >
@@ -936,6 +946,17 @@ export function TailorGalleryPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDeleteDialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) setPendingDeleteImageId(null);
+        }}
+        title="Delete image"
+        description="Are you sure you want to delete this image? This action cannot be undone."
+        onConfirm={handleConfirmDeleteImage}
+      />
     </div>
   );
 }

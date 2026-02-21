@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Plus, Search, MapPin, Phone, Mail, Edit, Trash2, X, Users } from 'lucide-react';
+import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
 
 interface Location {
   id: number;
@@ -18,6 +19,8 @@ export function LocationsPage() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingLocationId, setEditingLocationId] = useState<number | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pendingDeleteLocationId, setPendingDeleteLocationId] = useState<number | null>(null);
 
   const [locationForm, setLocationForm] = useState({
     name: '',
@@ -92,9 +95,16 @@ export function LocationsPage() {
     setShowAddModal(true);
   };
 
-  const handleDeleteLocation = (locationId: number) => {
-    if (confirm('Are you sure you want to delete this location?')) {
-      setLocations(locations.filter(loc => loc.id !== locationId));
+  const openDeleteDialog = (locationId: number) => {
+    setPendingDeleteLocationId(locationId);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDeleteLocation = () => {
+    if (pendingDeleteLocationId !== null) {
+      setLocations(locations.filter(loc => loc.id !== pendingDeleteLocationId));
+      setDeleteDialogOpen(false);
+      setPendingDeleteLocationId(null);
     }
   };
 
@@ -219,7 +229,7 @@ export function LocationsPage() {
                           Edit
                         </button>
                         <button
-                          onClick={() => handleDeleteLocation(location.id)}
+                          onClick={() => openDeleteDialog(location.id)}
                           className="px-4 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors text-sm"
                         >
                           Delete
@@ -440,6 +450,17 @@ export function LocationsPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDeleteDialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) setPendingDeleteLocationId(null);
+        }}
+        title="Delete location"
+        description="Are you sure you want to delete this location? This action cannot be undone."
+        onConfirm={handleConfirmDeleteLocation}
+      />
     </div>
   );
 }

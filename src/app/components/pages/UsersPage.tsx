@@ -1,22 +1,22 @@
-import { useState } from 'react';
-import { Plus, Search, Shield, Mail, Edit, Trash2, X, Eye, EyeOff } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Plus, Search, Shield, Mail, Edit, Trash2, X } from 'lucide-react';
+import { usersService } from '../../api/services/usersService';
+import type { ApiUser } from '../../api/types/user';
+import type { CreateUserRequest, UpdateUserRequest } from '../../api/types/user';
+import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
 
-interface User {
-  id: number;
-  name: string;
-  email: string;
-  phone: string;
-  role: 'Admin' | 'Product & E-commerce Manager' | 'Tailors Manager' | 'Design Manager';
-  status: 'Active' | 'Inactive';
-  lastLogin: string;
-  createdDate: string;
+const ROLE_OPTIONS = [
+  { value: 'ADMIN', label: 'Admin', color: 'bg-purple-100 text-purple-800 border-purple-200' },
+  { value: 'SELLER', label: 'Seller', color: 'bg-blue-100 text-blue-800 border-blue-200' },
+  { value: 'CUSTOMER', label: 'Customer', color: 'bg-green-100 text-green-800 border-green-200' },
+];
+
+function getRoleColor(roleValue: string) {
+  return ROLE_OPTIONS.find((r) => r.value === roleValue)?.color ?? 'bg-gray-100 text-gray-800 border-gray-200';
 }
 
-interface Role {
-  name: 'Admin' | 'Product & E-commerce Manager' | 'Tailors Manager' | 'Design Manager';
-  description: string;
-  permissions: string[];
-  color: string;
+function getRoleLabel(roleValue: string) {
+  return ROLE_OPTIONS.find((r) => r.value === roleValue)?.label ?? roleValue;
 }
 
 export function UsersPage() {
@@ -24,218 +24,148 @@ export function UsersPage() {
   const [filterRole, setFilterRole] = useState('all');
   const [showAddModal, setShowAddModal] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
-  const [editingUserId, setEditingUserId] = useState<number | null>(null);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [showPermissionsModal, setShowPermissionsModal] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<Role | null>(null);
+  const [selectedRoleForPermissions, setSelectedRoleForPermissions] = useState<(typeof ROLE_OPTIONS)[0] | null>(null);
 
-  const [newUser, setNewUser] = useState({
-    name: '',
+  const [users, setUsers] = useState<ApiUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const [formUser, setFormUser] = useState({
+    firstName: '',
+    lastName: '',
     email: '',
     phone: '',
     password: '',
-    role: 'Product & E-commerce Manager' as User['role'],
-    status: 'Active' as User['status'],
+    role: 'SELLER',
+    isActive: true,
   });
 
-  const roles: Role[] = [
-    {
-      name: 'Admin',
-      description: 'Full system access with all permissions',
-      permissions: [
-        'Dashboard - View & Manage',
-        'E-commerce - Full Access (Orders, Products, Inventory, Customers, Categories, Collections)',
-        'Tailoring - Full Access (Tailors, Orders, Customers, Categories, Measurements, Design Gallery)',
-        'Payments - View & Manage All Payments',
-        'Users & Roles - Create, Edit, Delete Users',
-        'Locations - Manage All Locations',
-        'Notifications - Send & Manage',
-        'Audit Logs - View All Activities',
-        'Settings - Modify System Settings',
-      ],
-      color: 'bg-purple-100 text-purple-800 border-purple-200',
-    },
-    {
-      name: 'Product & E-commerce Manager',
-      description: 'Manages products, inventory, and e-commerce operations',
-      permissions: [
-        'Dashboard - View Only',
-        'Products - Create, Edit, Delete',
-        'Inventory - Manage Stock Levels',
-        'E-commerce Orders - View, Update Status',
-        'Customers - View & Manage',
-        'Categories - Create, Edit, Delete',
-        'Collections - Create, Edit, Delete',
-        'Payments - View E-commerce Payments Only',
-      ],
-      color: 'bg-blue-100 text-blue-800 border-blue-200',
-    },
-    {
-      name: 'Tailors Manager',
-      description: 'Manages tailors, tailor orders, and measurements',
-      permissions: [
-        'Dashboard - View Only',
-        'Tailors - Create, Edit, Delete',
-        'Tailor Orders - View, Create, Update',
-        'Tailor Customers - View & Manage',
-        'Tailor Categories - Manage Categories',
-        'Measurements - View, Edit, Add New',
-        'Tailor Payments - View & Update',
-      ],
-      color: 'bg-green-100 text-green-800 border-green-200',
-    },
-    {
-      name: 'Design Manager',
-      description: 'Manages design gallery and visual content',
-      permissions: [
-        'Dashboard - View Only',
-        'Design Gallery - Upload, Edit, Delete Designs',
-        'Tailor Categories - View Only',
-        'Measurements - View Only',
-      ],
-      color: 'bg-orange-100 text-orange-800 border-orange-200',
-    },
-  ];
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pendingDeleteUserId, setPendingDeleteUserId] = useState<string | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
-  const [users, setUsers] = useState<User[]>([
-    {
-      id: 1,
-      name: 'Raaghu',
-      email: 'raaghu@wevraa.com',
-      phone: '+91 98765 43210',
-      role: 'Admin',
-      status: 'Active',
-      lastLogin: '2024-01-12 10:30 AM',
-      createdDate: '2023-01-15',
-    },
-    {
-      id: 2,
-      name: 'Priya Sharma',
-      email: 'priya.sharma@wevraa.com',
-      phone: '+91 99876 54321',
-      role: 'Product & E-commerce Manager',
-      status: 'Active',
-      lastLogin: '2024-01-12 09:15 AM',
-      createdDate: '2023-03-20',
-    },
-    {
-      id: 3,
-      name: 'Anita Desai',
-      email: 'anita.desai@wevraa.com',
-      phone: '+91 97654 32109',
-      role: 'Tailors Manager',
-      status: 'Active',
-      lastLogin: '2024-01-12 08:45 AM',
-      createdDate: '2023-02-10',
-    },
-    {
-      id: 4,
-      name: 'Vikram Singh',
-      email: 'vikram.singh@wevraa.com',
-      phone: '+91 96543 21098',
-      role: 'Design Manager',
-      status: 'Active',
-      lastLogin: '2024-01-11 05:30 PM',
-      createdDate: '2023-04-05',
-    },
-    {
-      id: 5,
-      name: 'Lakshmi Iyer',
-      email: 'lakshmi.iyer@wevraa.com',
-      phone: '+91 95432 10987',
-      role: 'Product & E-commerce Manager',
-      status: 'Active',
-      lastLogin: '2024-01-12 11:00 AM',
-      createdDate: '2023-05-12',
-    },
-    {
-      id: 6,
-      name: 'Arjun Reddy',
-      email: 'arjun.reddy@wevraa.com',
-      phone: '+91 94321 09876',
-      role: 'Tailors Manager',
-      status: 'Inactive',
-      lastLogin: '2024-01-08 03:20 PM',
-      createdDate: '2023-06-18',
-    },
-  ]);
+  const fetchUsers = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const list = await usersService.getList();
+      setUsers(Array.isArray(list) ? list : []);
+    } catch (e) {
+      const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'Failed to load users';
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const filteredUsers = users.filter(user => {
-    const matchesSearch = 
-      user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.phone.includes(searchTerm);
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
+
+  const filteredUsers = users.filter((user) => {
+    const name = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim().toLowerCase();
+    const matchesSearch =
+      name.includes(searchTerm.toLowerCase()) ||
+      (user.email ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (user.phone ?? '').includes(searchTerm);
     const matchesRole = filterRole === 'all' || user.role === filterRole;
     return matchesSearch && matchesRole;
   });
 
-  const getRoleColor = (roleName: string) => {
-    const role = roles.find(r => r.name === roleName);
-    return role?.color || 'bg-gray-100 text-gray-800 border-gray-200';
-  };
+  const getRoleCount = (roleValue: string) => users.filter((u) => u.role === roleValue).length;
 
-  const getRoleCount = (roleName: string) => {
-    return users.filter(u => u.role === roleName).length;
-  };
-
-  const handleAddUser = () => {
-    if (!newUser.name || !newUser.email || !newUser.phone || !newUser.password) {
-      alert('Please fill in all required fields');
+  const handleAddUser = async () => {
+    if (!formUser.firstName?.trim() || !formUser.lastName?.trim() || !formUser.email?.trim() || !formUser.password) {
+      setError('First name, last name, email and password are required');
       return;
     }
-
-    const userData: User = {
-      id: Math.max(...users.map(u => u.id)) + 1,
-      name: newUser.name,
-      email: newUser.email,
-      phone: newUser.phone,
-      role: newUser.role,
-      status: newUser.status,
-      lastLogin: 'Never',
-      createdDate: new Date().toISOString().split('T')[0],
-    };
-
-    setUsers([...users, userData]);
-    resetModal();
+    setSaving(true);
+    setError(null);
+    try {
+      const body: CreateUserRequest = {
+        email: formUser.email.trim(),
+        password: formUser.password,
+        firstName: formUser.firstName.trim(),
+        lastName: formUser.lastName.trim(),
+        phone: formUser.phone?.trim() || undefined,
+        role: formUser.role,
+        isActive: formUser.isActive,
+      };
+      await usersService.create(body);
+      resetModal();
+      await fetchUsers();
+    } catch (e) {
+      const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'Failed to add user';
+      setError(msg);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleUpdateUser = () => {
-    if (!newUser.name || !newUser.email || !newUser.phone) {
-      alert('Please fill in all required fields');
+  const handleUpdateUser = async () => {
+    if (!editingUserId) return;
+    if (!formUser.firstName?.trim() || !formUser.lastName?.trim()) {
+      setError('First name and last name are required');
       return;
     }
-
-    if (editingUserId !== null) {
-      const updatedUsers = users.map(user =>
-        user.id === editingUserId
-          ? { ...user, name: newUser.name, email: newUser.email, phone: newUser.phone, role: newUser.role, status: newUser.status }
-          : user
-      );
-      setUsers(updatedUsers);
-    }
-
-    resetModal();
-  };
-
-  const handleEditUser = (userId: number) => {
-    const userToEdit = users.find(u => u.id === userId);
-    if (userToEdit) {
-      setIsEditMode(true);
-      setEditingUserId(userId);
-      setNewUser({
-        name: userToEdit.name,
-        email: userToEdit.email,
-        phone: userToEdit.phone,
-        password: '',
-        role: userToEdit.role,
-        status: userToEdit.status,
-      });
-      setShowAddModal(true);
+    setSaving(true);
+    setError(null);
+    try {
+      const body: UpdateUserRequest = {
+        firstName: formUser.firstName.trim(),
+        lastName: formUser.lastName.trim(),
+        phone: formUser.phone?.trim() || undefined,
+        role: formUser.role,
+        isActive: formUser.isActive,
+      };
+      await usersService.update(editingUserId, body);
+      resetModal();
+      await fetchUsers();
+    } catch (e) {
+      const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'Failed to update user';
+      setError(msg);
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleDeleteUser = (userId: number) => {
-    if (window.confirm('Are you sure you want to delete this user?')) {
-      setUsers(users.filter(u => u.id !== userId));
+  const handleEditUser = (user: ApiUser) => {
+    setIsEditMode(true);
+    setEditingUserId(user.id);
+    setFormUser({
+      firstName: user.firstName ?? '',
+      lastName: user.lastName ?? '',
+      email: user.email ?? '',
+      phone: user.phone ?? '',
+      password: '',
+      role: user.role ?? 'SELLER',
+      isActive: user.isActive ?? true,
+    });
+    setShowAddModal(true);
+  };
+
+  const openDeleteDialog = (userId: string) => {
+    setPendingDeleteUserId(userId);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDeleteUser = async () => {
+    if (!pendingDeleteUserId) return;
+    setDeleteLoading(true);
+    setError(null);
+    try {
+      await usersService.delete(pendingDeleteUserId);
+      setUsers((prev) => prev.filter((u) => u.id !== pendingDeleteUserId));
+      setDeleteDialogOpen(false);
+      setPendingDeleteUserId(null);
+    } catch (e) {
+      const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'Failed to delete user';
+      setError(msg);
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -243,18 +173,20 @@ export function UsersPage() {
     setShowAddModal(false);
     setIsEditMode(false);
     setEditingUserId(null);
-    setNewUser({
-      name: '',
+    setFormUser({
+      firstName: '',
+      lastName: '',
       email: '',
       phone: '',
       password: '',
-      role: 'Product & E-commerce Manager',
-      status: 'Active',
+      role: 'SELLER',
+      isActive: true,
     });
+    setError(null);
   };
 
-  const handleViewPermissions = (role: Role) => {
-    setSelectedRole(role);
+  const handleViewPermissions = (roleOption: (typeof ROLE_OPTIONS)[0]) => {
+    setSelectedRoleForPermissions(roleOption);
     setShowPermissionsModal(true);
   };
 
@@ -274,6 +206,13 @@ export function UsersPage() {
         </button>
       </div>
 
+      {error && !showAddModal && (
+        <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 flex justify-between items-center">
+          <span>{error}</span>
+          <button type="button" onClick={() => setError(null)} className="text-red-600 hover:underline font-medium">Dismiss</button>
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div className="bg-white rounded-lg shadow p-4">
@@ -283,18 +222,18 @@ export function UsersPage() {
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-sm text-gray-600">Active Users</p>
           <p className="text-2xl font-semibold text-green-600 mt-1">
-            {users.filter(u => u.status === 'Active').length}
+            {users.filter((u) => u.isActive).length}
           </p>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-sm text-gray-600">Inactive Users</p>
           <p className="text-2xl font-semibold text-red-600 mt-1">
-            {users.filter(u => u.status === 'Inactive').length}
+            {users.filter((u) => !u.isActive).length}
           </p>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-sm text-gray-600">Total Roles</p>
-          <p className="text-2xl font-semibold text-blue-600 mt-1">{roles.length}</p>
+          <p className="text-2xl font-semibold text-blue-600 mt-1">{ROLE_OPTIONS.length}</p>
         </div>
       </div>
 
@@ -320,8 +259,8 @@ export function UsersPage() {
                 className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="all">All Roles</option>
-                {roles.map(role => (
-                  <option key={role.name} value={role.name}>{role.name}</option>
+                {ROLE_OPTIONS.map((r) => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
                 ))}
               </select>
             </div>
@@ -349,47 +288,48 @@ export function UsersPage() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredUsers.map((user) => (
+                {loading ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                      Loading users...
+                    </td>
+                  </tr>
+                ) : (
+                filteredUsers.map((user) => (
                   <tr key={user.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4">
                       <div>
-                        <p className="font-medium text-gray-900">{user.name}</p>
+                        <p className="font-medium text-gray-900">
+                          {[user.firstName, user.lastName].filter(Boolean).join(' ') || '—'}
+                        </p>
                         <div className="flex items-center gap-1 text-sm text-gray-500">
                           <Mail className="w-3 h-3" />
                           {user.email}
                         </div>
-                        <p className="text-sm text-gray-500">{user.phone}</p>
+                        <p className="text-sm text-gray-500">{user.phone ?? '—'}</p>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`px-3 py-1 text-xs font-medium rounded-full border ${getRoleColor(user.role)}`}>
-                        {user.role}
+                        {getRoleLabel(user.role)}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`px-3 py-1 text-xs font-medium rounded-full ${
-                          user.status === 'Active'
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-gray-100 text-gray-800'
-                        }`}
-                      >
-                        {user.status}
+                      <span className={`px-3 py-1 text-xs font-medium rounded-full ${user.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                        {user.isActive ? 'Active' : 'Inactive'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {user.lastLogin}
-                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">—</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex gap-2">
                         <button
-                          onClick={() => handleEditUser(user.id)}
+                          onClick={() => handleEditUser(user)}
                           className="text-blue-600 hover:text-blue-800"
                         >
                           <Edit className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => handleDeleteUser(user.id)}
+                          onClick={() => openDeleteDialog(user.id)}
                           className="text-red-600 hover:text-red-800"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -397,11 +337,12 @@ export function UsersPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                ))
+                )}
               </tbody>
             </table>
 
-            {filteredUsers.length === 0 && (
+            {!loading && filteredUsers.length === 0 && (
               <div className="p-12 text-center">
                 <p className="text-gray-500">No users found</p>
               </div>
@@ -416,24 +357,23 @@ export function UsersPage() {
             <h3 className="text-lg font-semibold text-gray-900">Roles</h3>
           </div>
           <div className="space-y-4">
-            {roles.map((role) => (
+            {ROLE_OPTIONS.map((role) => (
               <div
-                key={role.name}
-                className={`p-4 border-2 rounded-lg hover:shadow-md transition-shadow ${getRoleColor(role.name)}`}
+                key={role.value}
+                className={`p-4 border-2 rounded-lg hover:shadow-md transition-shadow ${role.color}`}
               >
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex-1">
-                    <h4 className="font-semibold text-sm mb-1">{role.name}</h4>
-                    <p className="text-xs opacity-80 mb-2">{role.description}</p>
+                    <h4 className="font-semibold text-sm mb-1">{role.label}</h4>
                   </div>
-                  <span className="text-sm font-medium ml-2">{getRoleCount(role.name)}</span>
+                  <span className="text-sm font-medium ml-2">{getRoleCount(role.value)}</span>
                 </div>
-                <button
+                {/* <button
                   onClick={() => handleViewPermissions(role)}
                   className="text-xs font-medium underline hover:no-underline"
                 >
                   View Permissions
-                </button>
+                </button> */}
               </div>
             ))}
           </div>
@@ -453,57 +393,67 @@ export function UsersPage() {
               </button>
             </div>
 
+            {error && (
+              <div className="mx-6 mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex justify-between items-center">
+                <span>{error}</span>
+                <button type="button" onClick={() => setError(null)} className="text-red-600 hover:underline font-medium">Dismiss</button>
+              </div>
+            )}
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Name <span className="text-red-500">*</span>
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">First name <span className="text-red-500">*</span></label>
                   <input
                     type="text"
-                    value={newUser.name}
-                    onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
+                    value={formUser.firstName}
+                    onChange={(e) => setFormUser({ ...formUser, firstName: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Enter full name"
+                    placeholder="Jane"
                   />
                 </div>
-
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Phone <span className="text-red-500">*</span>
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Last name <span className="text-red-500">*</span></label>
                   <input
-                    type="tel"
-                    value={newUser.phone}
-                    onChange={(e) => setNewUser({ ...newUser, phone: e.target.value })}
+                    type="text"
+                    value={formUser.lastName}
+                    onChange={(e) => setFormUser({ ...formUser, lastName: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="+91 98765 43210"
+                    placeholder="Smith"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email <span className="text-red-500">*</span>
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email <span className="text-red-500">*</span></label>
                 <input
                   type="email"
-                  value={newUser.email}
-                  onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                  value={formUser.email}
+                  onChange={(e) => setFormUser({ ...formUser, email: e.target.value })}
+                  disabled={isEditMode}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-600"
+                  placeholder="user@example.com"
+                />
+                {isEditMode && <p className="text-xs text-gray-500 mt-1">Email cannot be changed when editing.</p>}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                <input
+                  type="tel"
+                  value={formUser.phone}
+                  onChange={(e) => setFormUser({ ...formUser, phone: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="user@wevraa.com"
+                  placeholder="+91 9123456789"
                 />
               </div>
 
               {!isEditMode && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Password <span className="text-red-500">*</span>
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Password <span className="text-red-500">*</span></label>
                   <input
                     type="password"
-                    value={newUser.password}
-                    onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                    value={formUser.password}
+                    onChange={(e) => setFormUser({ ...formUser, password: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="Enter password"
                   />
@@ -512,25 +462,22 @@ export function UsersPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Role <span className="text-red-500">*</span>
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Role <span className="text-red-500">*</span></label>
                   <select
-                    value={newUser.role}
-                    onChange={(e) => setNewUser({ ...newUser, role: e.target.value as User['role'] })}
+                    value={formUser.role}
+                    onChange={(e) => setFormUser({ ...formUser, role: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    {roles.map(role => (
-                      <option key={role.name} value={role.name}>{role.name}</option>
+                    {ROLE_OPTIONS.map((r) => (
+                      <option key={r.value} value={r.value}>{r.label}</option>
                     ))}
                   </select>
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                   <select
-                    value={newUser.status}
-                    onChange={(e) => setNewUser({ ...newUser, status: e.target.value as User['status'] })}
+                    value={formUser.isActive ? 'Active' : 'Inactive'}
+                    onChange={(e) => setFormUser({ ...formUser, isActive: e.target.value === 'Active' })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
                     <option value="Active">Active</option>
@@ -538,28 +485,22 @@ export function UsersPage() {
                   </select>
                 </div>
               </div>
-
-              {/* Role Description */}
-              <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <p className="text-sm font-medium text-blue-900 mb-1">Role Description:</p>
-                <p className="text-sm text-blue-800">
-                  {roles.find(r => r.name === newUser.role)?.description}
-                </p>
-              </div>
             </div>
 
             <div className="border-t border-gray-200 px-6 py-4 flex justify-end gap-3 bg-gray-50 rounded-b-lg">
               <button
                 onClick={resetModal}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+                disabled={saving}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 onClick={isEditMode ? handleUpdateUser : handleAddUser}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                disabled={saving}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isEditMode ? 'Update User' : 'Add User'}
+                {saving ? 'Saving...' : isEditMode ? 'Update User' : 'Add User'}
               </button>
             </div>
           </div>
@@ -567,15 +508,15 @@ export function UsersPage() {
       )}
 
       {/* Permissions Modal */}
-      {showPermissionsModal && selectedRole && (
+      {showPermissionsModal && selectedRoleForPermissions && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl">
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-lg">
               <div className="flex items-center gap-3">
                 <Shield className="w-6 h-6 text-blue-600" />
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-900">{selectedRole.name}</h2>
-                  <p className="text-sm text-gray-600">{selectedRole.description}</p>
+                  <h2 className="text-xl font-semibold text-gray-900">{selectedRoleForPermissions.label}</h2>
+                  <p className="text-sm text-gray-600">Role: {selectedRoleForPermissions.value}</p>
                 </div>
               </div>
               <button
@@ -587,19 +528,9 @@ export function UsersPage() {
             </div>
 
             <div className="p-6">
-              <h3 className="text-sm font-semibold text-gray-700 mb-4 uppercase">Permissions:</h3>
-              <div className="space-y-2">
-                {selectedRole.permissions.map((permission, index) => (
-                  <div key={index} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
-                    <div className="mt-0.5">
-                      <div className="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center">
-                        <div className="w-2 h-2 rounded-full bg-green-600"></div>
-                      </div>
-                    </div>
-                    <p className="text-sm text-gray-700">{permission}</p>
-                  </div>
-                ))}
-              </div>
+              <p className="text-sm text-gray-600">
+                Permissions for this role are managed by the backend. Users with this role have access as defined in your API.
+              </p>
             </div>
 
             <div className="border-t border-gray-200 px-6 py-4 flex justify-end bg-gray-50 rounded-b-lg">
@@ -613,6 +544,18 @@ export function UsersPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDeleteDialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) setPendingDeleteUserId(null);
+        }}
+        title="Delete user"
+        description="Are you sure you want to delete this user? This action cannot be undone."
+        onConfirm={handleConfirmDeleteUser}
+        isLoading={deleteLoading}
+      />
     </div>
   );
 }

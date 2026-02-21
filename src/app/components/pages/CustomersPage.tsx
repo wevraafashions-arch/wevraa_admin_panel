@@ -3,6 +3,7 @@ import { Plus, Search, Mail, Phone, Edit, Trash2, X, Eye, ShoppingBag, IndianRup
 import { customerService } from '../../api/services/customerService';
 import type { ApiCustomer } from '../../api/types/customer';
 import type { CreateCustomerRequest, UpdateCustomerRequest } from '../../api/types/customer';
+import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
 
 /** UI customer (mapped from API); id is string for API */
 interface Customer {
@@ -65,6 +66,8 @@ export function CustomersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pendingDeleteCustomerId, setPendingDeleteCustomerId] = useState<string | null>(null);
 
   const [customerForm, setCustomerForm] = useState({
     name: '',
@@ -188,9 +191,16 @@ export function CustomersPage() {
     setShowAddModal(true);
   };
 
-  const handleDeleteCustomer = (customerId: string) => {
-    if (confirm('Are you sure you want to delete this customer?')) {
-      setCustomers((prev) => prev.filter((c) => c.id !== customerId));
+  const openDeleteDialog = (customerId: string) => {
+    setPendingDeleteCustomerId(customerId);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDeleteCustomer = () => {
+    if (pendingDeleteCustomerId) {
+      setCustomers((prev) => prev.filter((c) => c.id !== pendingDeleteCustomerId));
+      setDeleteDialogOpen(false);
+      setPendingDeleteCustomerId(null);
     }
   };
 
@@ -330,7 +340,7 @@ export function CustomersPage() {
                         <Edit className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleDeleteCustomer(customer.id)}
+                        onClick={() => openDeleteDialog(customer.id)}
                         className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                         title="Delete customer"
                       >
@@ -604,6 +614,17 @@ export function CustomersPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDeleteDialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) setPendingDeleteCustomerId(null);
+        }}
+        title="Delete customer"
+        description="Are you sure you want to delete this customer? This action cannot be undone."
+        onConfirm={handleConfirmDeleteCustomer}
+      />
     </div>
   );
 }

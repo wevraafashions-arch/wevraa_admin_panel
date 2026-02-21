@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useVendors } from '@/contexts/VendorContext';
 import type { CreateVendorRequest, UpdateVendorRequest } from '../../api/types/vendor';
 import { AddVendorModal } from '../AddVendorModal';
+import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
 
 export function VendorsPage() {
   const { vendors, loading, error, refetch, addVendor, updateVendor, deleteVendor } = useVendors();
@@ -11,6 +12,8 @@ export function VendorsPage() {
   const [selectedVendor, setSelectedVendor] = useState<(typeof vendors)[0] | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'All' | 'Active' | 'Inactive'>('All');
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pendingDeleteVendorId, setPendingDeleteVendorId] = useState<string | null>(null);
 
   const filteredVendors = vendors.filter((vendor) => {
     const matchesSearch =
@@ -39,9 +42,16 @@ export function VendorsPage() {
     }
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this vendor?')) {
-      deleteVendor(id);
+  const openDeleteDialog = (id: string) => {
+    setPendingDeleteVendorId(id);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (pendingDeleteVendorId) {
+      deleteVendor(pendingDeleteVendorId);
+      setDeleteDialogOpen(false);
+      setPendingDeleteVendorId(null);
     }
   };
 
@@ -264,7 +274,7 @@ export function VendorsPage() {
                         Edit
                       </button>
                       <button
-                        onClick={() => handleDelete(vendor.id)}
+                        onClick={() => openDeleteDialog(vendor.id)}
                         className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300"
                       >
                         Delete
@@ -372,6 +382,17 @@ export function VendorsPage() {
         onClose={handleCloseModal}
         onSave={handleSave}
         editingVendor={editingVendor}
+      />
+
+      <ConfirmDeleteDialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) setPendingDeleteVendorId(null);
+        }}
+        title="Delete vendor"
+        description="Are you sure you want to delete this vendor? This action cannot be undone."
+        onConfirm={handleConfirmDelete}
       />
     </div>
   );
