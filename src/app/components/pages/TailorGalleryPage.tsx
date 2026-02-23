@@ -41,7 +41,7 @@ const CURRENT_TAILOR = {
 };
 
 export function TailorGalleryPage() {
-  const { getActiveCategories, getActiveCategoriesWithSubs, subCategoriesData } = useTailorCategories();
+  const { getActiveCategories, getActiveCategoriesWithSubs, subCategoriesData, loadSubCategories } = useTailorCategories();
   const activeCategories = getActiveCategories();
   const categoriesWithSubs = getActiveCategoriesWithSubs();
   
@@ -127,11 +127,15 @@ export function TailorGalleryPage() {
 
   // Update subcategories when category changes in new image form
   const handleCategoryChange = (categoryName: string) => {
+    const cat = activeCategories.find(c => c.name === categoryName);
+    if (cat) loadSubCategories(cat.id);
     setNewImage({ ...newImage, category: categoryName, subcategory: '' });
   };
 
   // Update subcategories when category changes in edit form
   const handleEditCategoryChange = (categoryName: string) => {
+    const cat = activeCategories.find(c => c.name === categoryName);
+    if (cat) loadSubCategories(cat.id);
     if (selectedImage) {
       setSelectedImage({ ...selectedImage, category: categoryName, subcategory: '' });
     }

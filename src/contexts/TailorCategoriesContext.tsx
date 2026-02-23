@@ -1,7 +1,14 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import { tailorCategoriesService } from '@/app/api/services/tailorCategoriesService';
+import type { ApiTailorCategory } from '@/app/api/types/tailorCategory';
+
+const statusFromApi = (s: string): 'Active' | 'Inactive' =>
+  s === 'ACTIVE' ? 'Active' : 'Inactive';
+const statusToApi = (s: string): 'ACTIVE' | 'INACTIVE' =>
+  s === 'Active' ? 'ACTIVE' : 'INACTIVE';
 
 export interface SubCategory {
-  id: number;
+  id: string;
   name: string;
   description: string;
   orders: number;
@@ -10,7 +17,7 @@ export interface SubCategory {
 }
 
 export interface Category {
-  id: number;
+  id: string;
   name: string;
   description: string;
   orders: number;
@@ -18,103 +25,207 @@ export interface Category {
   position: number;
 }
 
+function mapApiToCategory(api: ApiTailorCategory): Category {
+  return {
+    id: api.id,
+    name: api.name,
+    description: api.description,
+    orders: 0,
+    status: statusFromApi(api.status),
+    position: api.sortOrder,
+  };
+}
+
+function mapApiToSubCategory(api: ApiTailorCategory): SubCategory {
+  return {
+    id: api.id,
+    name: api.name,
+    description: api.description,
+    orders: 0,
+    status: statusFromApi(api.status),
+    position: api.sortOrder,
+  };
+}
+
 interface TailorCategoriesContextType {
   categories: Category[];
-  subCategoriesData: { [key: number]: SubCategory[] };
+  subCategoriesData: { [parentId: string]: SubCategory[] };
+  loading: boolean;
+  error: string | null;
   setCategories: (categories: Category[]) => void;
-  setSubCategoriesData: (data: { [key: number]: SubCategory[] }) => void;
+  setSubCategoriesData: (data: { [parentId: string]: SubCategory[] }) => void;
+  loadCategories: () => Promise<void>;
+  loadSubCategories: (parentId: string) => Promise<void>;
   getActiveCategories: () => Category[];
   getActiveCategoriesWithSubs: () => { category: Category; subcategories: SubCategory[] }[];
-  reorderCategories: (startIndex: number, endIndex: number) => void;
-  reorderSubCategories: (categoryId: number, startIndex: number, endIndex: number) => void;
+  reorderCategories: (startIndex: number, endIndex: number) => Promise<void>;
+  reorderSubCategories: (parentId: string, startIndex: number, endIndex: number) => Promise<void>;
+  createCategory: (body: { name: string; description: string; status: string; sortOrder?: number }) => Promise<Category>;
+  updateCategory: (id: string, body: { name?: string; description?: string; status?: string }) => Promise<void>;
+  deleteCategory: (id: string) => Promise<void>;
+  createSubCategory: (parentId: string, body: { name: string; description: string; status: string }) => Promise<SubCategory>;
+  updateSubCategory: (id: string, body: { name?: string; description?: string; status?: string }) => Promise<void>;
+  deleteSubCategory: (id: string, parentId: string) => Promise<void>;
 }
 
 const TailorCategoriesContext = createContext<TailorCategoriesContextType | undefined>(undefined);
 
-const defaultCategories: Category[] = [
-  { id: 1, name: 'Blouse', description: 'Blouse stitching and alterations', orders: 145, status: 'Active', position: 0 },
-  { id: 2, name: 'Topwear', description: 'Kurtas, shirts, tops, and upper garments', orders: 234, status: 'Active', position: 1 },
-  { id: 3, name: 'Bottomwear', description: 'Pants, salwars, skirts, and lower garments', orders: 189, status: 'Active', position: 2 },
-  { id: 4, name: 'Others', description: 'Miscellaneous tailoring services', orders: 67, status: 'Active', position: 3 },
-];
-
-const defaultSubCategoriesData: { [key: number]: SubCategory[] } = {
-  1: [ // Blouse
-    { id: 1, name: 'Hand Embroidery', description: 'Blouse with hand embroidery work', orders: 45, status: 'Active', position: 0 },
-    { id: 2, name: 'Machine Embroidery', description: 'Blouse with machine embroidery', orders: 38, status: 'Active', position: 1 },
-    { id: 3, name: 'Princes Cut Blouse', description: 'Princes cut style blouse design', orders: 32, status: 'Active', position: 2 },
-    { id: 4, name: 'Katori Blouse', description: 'Katori style blouse stitching', orders: 28, status: 'Active', position: 3 },
-    { id: 5, name: 'Lining Blouse', description: 'Blouse with lining work', orders: 24, status: 'Active', position: 4 },
-    { id: 6, name: 'Lehenga Blouse', description: 'Blouse for lehenga outfit', orders: 20, status: 'Active', position: 5 },
-    { id: 7, name: 'Plain Blouse', description: 'Simple plain blouse stitching', orders: 18, status: 'Active', position: 6 },
-  ],
-  2: [ // Topwear
-    { id: 1, name: 'Gown', description: 'Gown stitching and designing', orders: 56, status: 'Active', position: 0 },
-    { id: 2, name: 'Kurta', description: 'Kurta stitching service', orders: 48, status: 'Active', position: 1 },
-    { id: 3, name: 'Salwar', description: 'Salwar stitching service', orders: 42, status: 'Active', position: 2 },
-    { id: 4, name: 'Ghagra', description: 'Ghagra stitching and designing', orders: 35, status: 'Active', position: 3 },
-    { id: 5, name: 'Lehenga Blouse', description: 'Lehenga blouse stitching', orders: 28, status: 'Active', position: 4 },
-    { id: 6, name: 'Churidar', description: 'Churidar stitching service', orders: 25, status: 'Active', position: 5 },
-  ],
-  3: [ // Bottomwear
-    { id: 1, name: 'Chudi Bottom', description: 'Chudi bottom stitching', orders: 52, status: 'Active', position: 0 },
-    { id: 2, name: 'Salwar Bottom', description: 'Salwar bottom stitching', orders: 48, status: 'Active', position: 1 },
-    { id: 3, name: 'Patiala', description: 'Patiala pants stitching', orders: 42, status: 'Active', position: 2 },
-    { id: 4, name: 'Palazzo', description: 'Palazzo pants stitching', orders: 38, status: 'Active', position: 3 },
-    { id: 5, name: 'Straight Pant', description: 'Straight pant stitching', orders: 32, status: 'Active', position: 4 },
-    { id: 6, name: 'Lehenga Bottom', description: 'Lehenga bottom stitching', orders: 27, status: 'Active', position: 5 },
-  ],
-  4: [ // Others
-    { id: 1, name: 'Saree Krosha', description: 'Saree krosha work and finishing', orders: 45, status: 'Active', position: 0 },
-    { id: 2, name: 'Saree Zig-Zag & Falls', description: 'Saree zig-zag stitching and falls work', orders: 22, status: 'Active', position: 1 },
-  ],
-};
-
 export function TailorCategoriesProvider({ children }: { children: ReactNode }) {
-  const [categories, setCategories] = useState<Category[]>(defaultCategories);
-  const [subCategoriesData, setSubCategoriesData] = useState<{ [key: number]: SubCategory[] }>(defaultSubCategoriesData);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [subCategoriesData, setSubCategoriesData] = useState<{ [parentId: string]: SubCategory[] }>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const getActiveCategories = () => {
+  const loadCategories = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const list = await tailorCategoriesService.getList();
+      setCategories(list.map(mapApiToCategory));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load categories');
+      setCategories([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const loadSubCategories = useCallback(async (parentId: string) => {
+    try {
+      const list = await tailorCategoriesService.getList(parentId);
+      setSubCategoriesData(prev => ({
+        ...prev,
+        [parentId]: list.map(mapApiToSubCategory),
+      }));
+    } catch {
+      setSubCategoriesData(prev => ({ ...prev, [parentId]: [] }));
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCategories();
+  }, [loadCategories]);
+
+  const getActiveCategories = useCallback(() => {
     return categories.filter(cat => cat.status === 'Active');
-  };
+  }, [categories]);
 
-  const getActiveCategoriesWithSubs = () => {
+  const getActiveCategoriesWithSubs = useCallback(() => {
     return getActiveCategories().map(category => ({
       category,
       subcategories: (subCategoriesData[category.id] || []).filter(sub => sub.status === 'Active'),
     }));
-  };
+  }, [categories, subCategoriesData, getActiveCategories]);
 
-  const reorderCategories = (startIndex: number, endIndex: number) => {
-    const newCategories = [...categories];
-    const [removed] = newCategories.splice(startIndex, 1);
-    newCategories.splice(endIndex, 0, removed);
-    newCategories.forEach((cat, index) => cat.position = index);
-    setCategories(newCategories);
-  };
-
-  const reorderSubCategories = (categoryId: number, startIndex: number, endIndex: number) => {
-    const newSubCategoriesData = { ...subCategoriesData };
-    const subCategories = newSubCategoriesData[categoryId];
-    if (subCategories) {
-      const [removed] = subCategories.splice(startIndex, 1);
-      subCategories.splice(endIndex, 0, removed);
-      subCategories.forEach((sub, index) => sub.position = index);
-      setSubCategoriesData(newSubCategoriesData);
+  const reorderCategories = useCallback(async (startIndex: number, endIndex: number) => {
+    const reordered = [...categories];
+    const [removed] = reordered.splice(startIndex, 1);
+    reordered.splice(endIndex, 0, removed);
+    const items = reordered.map((c, i) => ({ id: c.id, sortOrder: i }));
+    setCategories(reordered.map((c, i) => ({ ...c, position: i })));
+    try {
+      await tailorCategoriesService.reorder({ items });
+    } catch {
+      await loadCategories();
     }
-  };
+  }, [categories, loadCategories]);
+
+  const reorderSubCategories = useCallback(async (parentId: string, startIndex: number, endIndex: number) => {
+    const subs = subCategoriesData[parentId] || [];
+    const reordered = [...subs];
+    const [removed] = reordered.splice(startIndex, 1);
+    reordered.splice(endIndex, 0, removed);
+    const items = reordered.map((s, i) => ({ id: s.id, sortOrder: i }));
+    setSubCategoriesData(prev => ({
+      ...prev,
+      [parentId]: reordered.map((s, i) => ({ ...s, position: i })),
+    }));
+    try {
+      await tailorCategoriesService.reorder({ items });
+    } catch {
+      await loadSubCategories(parentId);
+    }
+  }, [subCategoriesData, loadSubCategories]);
+
+  const createCategory = useCallback(async (body: { name: string; description: string; status: string; sortOrder?: number }) => {
+    const created = await tailorCategoriesService.create({
+      name: body.name,
+      description: body.description,
+      status: statusToApi(body.status),
+      sortOrder: body.sortOrder ?? categories.length,
+    });
+    await loadCategories();
+    return mapApiToCategory(created);
+  }, [categories.length, loadCategories]);
+
+  const updateCategory = useCallback(async (id: string, body: { name?: string; description?: string; status?: string }) => {
+    await tailorCategoriesService.update(id, {
+      ...(body.name != null && { name: body.name }),
+      ...(body.description != null && { description: body.description }),
+      ...(body.status != null && { status: statusToApi(body.status) }),
+    });
+    await loadCategories();
+  }, [loadCategories]);
+
+  const deleteCategory = useCallback(async (id: string) => {
+    await tailorCategoriesService.delete(id);
+    await loadCategories();
+    setSubCategoriesData(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }, [loadCategories]);
+
+  const createSubCategory = useCallback(async (parentId: string, body: { name: string; description: string; status: string }) => {
+    const created = await tailorCategoriesService.create({
+      name: body.name,
+      description: body.description,
+      status: statusToApi(body.status),
+      parentId,
+    });
+    await loadSubCategories(parentId);
+    return mapApiToSubCategory(created);
+  }, [loadSubCategories]);
+
+  const updateSubCategory = useCallback(async (id: string, body: { name?: string; description?: string; status?: string }) => {
+    await tailorCategoriesService.update(id, {
+      ...(body.name != null && { name: body.name }),
+      ...(body.description != null && { description: body.description }),
+      ...(body.status != null && { status: statusToApi(body.status) }),
+    });
+    const parentId = Object.keys(subCategoriesData).find(pid =>
+      subCategoriesData[pid].some(s => s.id === id)
+    );
+    if (parentId) await loadSubCategories(parentId);
+  }, [subCategoriesData, loadSubCategories]);
+
+  const deleteSubCategory = useCallback(async (id: string, parentId: string) => {
+    await tailorCategoriesService.delete(id);
+    await loadSubCategories(parentId);
+  }, [loadSubCategories]);
 
   return (
     <TailorCategoriesContext.Provider
       value={{
         categories,
         subCategoriesData,
+        loading,
+        error,
         setCategories,
         setSubCategoriesData,
+        loadCategories,
+        loadSubCategories,
         getActiveCategories,
         getActiveCategoriesWithSubs,
         reorderCategories,
         reorderSubCategories,
+        createCategory,
+        updateCategory,
+        deleteCategory,
+        createSubCategory,
+        updateSubCategory,
+        deleteSubCategory,
       }}
     >
       {children}

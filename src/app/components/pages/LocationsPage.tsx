@@ -1,26 +1,44 @@
-import { useState } from 'react';
-import { Plus, Search, MapPin, Phone, Mail, Edit, Trash2, X, Users } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Plus, Search, MapPin, Phone, Mail, Trash2, X, Users } from 'lucide-react';
 import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
+import { locationsService } from '@/app/api/services/locationsService';
+import type { ApiLocation } from '@/app/api/types/location';
 
 interface Location {
-  id: number;
+  id: string;
   name: string;
   address: string;
   phone: string;
   email: string;
-  status: 'Active' | 'Under Renovation' | 'Closed';
+  status: 'Active' | 'Inactive';
   staff: number;
 }
 
+function apiToUi(api: ApiLocation): Location {
+  return {
+    id: api.id,
+    name: api.name,
+    address: api.address,
+    phone: api.phone,
+    email: api.email,
+    status: api.status === 'ACTIVE' ? 'Active' : 'Inactive',
+    staff: api.staffCount ?? 0,
+  };
+}
+
 export function LocationsPage() {
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
-  const [editingLocationId, setEditingLocationId] = useState<number | null>(null);
+  const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [pendingDeleteLocationId, setPendingDeleteLocationId] = useState<number | null>(null);
+  const [pendingDeleteLocationId, setPendingDeleteLocationId] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const [locationForm, setLocationForm] = useState({
     name: '',
@@ -31,14 +49,23 @@ export function LocationsPage() {
     staff: 0,
   });
 
-  const [locations, setLocations] = useState<Location[]>([
-    { id: 1, name: 'Main Store', address: 'Shop No. 12, M.G. Road, Bangalore, Karnataka 560001', phone: '+91 80-2345-6789', email: 'main@wevraa.in', status: 'Active', staff: 12 },
-    { id: 2, name: 'Indiranagar Branch', address: '45, 100 Feet Road, Indiranagar, Bangalore 560038', phone: '+91 80-2345-6790', email: 'indiranagar@wevraa.in', status: 'Active', staff: 8 },
-    { id: 3, name: 'Koramangala Store', address: '78, 5th Block, Koramangala, Bangalore 560095', phone: '+91 80-2345-6791', email: 'koramangala@wevraa.in', status: 'Active', staff: 10 },
-    { id: 4, name: 'Whitefield Workshop', address: '23, ITPL Main Road, Whitefield, Bangalore 560066', phone: '+91 80-2345-6792', email: 'whitefield@wevraa.in', status: 'Active', staff: 6 },
-    { id: 5, name: 'Jayanagar Outlet', address: '56, 4th Block, Jayanagar, Bangalore 560041', phone: '+91 80-2345-6793', email: 'jayanagar@wevraa.in', status: 'Under Renovation', staff: 0 },
-    { id: 6, name: 'HSR Layout Store', address: '89, 27th Main Road, HSR Layout, Bangalore 560102', phone: '+91 80-2345-6794', email: 'hsr@wevraa.in', status: 'Active', staff: 7 },
-  ]);
+  const loadLocations = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const list = await locationsService.getList();
+      setLocations(list.map(apiToUi));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load locations');
+      setLocations([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadLocations();
+  }, [loadLocations]);
 
   const filteredLocations = locations.filter(location =>
     location.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -59,25 +86,48 @@ export function LocationsPage() {
     setEditingLocationId(null);
   };
 
-  const handleAddLocation = (e: React.FormEvent) => {
+  const handleAddLocation = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newLocation: Location = {
-      id: Math.max(...locations.map(l => l.id)) + 1,
-      ...locationForm,
-    };
-    setLocations([...locations, newLocation]);
-    setShowAddModal(false);
-    resetForm();
-  };
-
-  const handleEditLocation = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (editingLocationId) {
-      setLocations(locations.map(loc =>
-        loc.id === editingLocationId ? { ...loc, ...locationForm } : loc
-      ));
+    setSubmitting(true);
+    try {
+      await locationsService.create({
+        name: locationForm.name,
+        address: locationForm.address,
+        phone: locationForm.phone,
+        email: locationForm.email,
+        status: locationForm.status === 'Active' ? 'ACTIVE' : 'INACTIVE',
+        staffCount: locationForm.staff,
+      });
+      await loadLocations();
       setShowAddModal(false);
       resetForm();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to add location');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleEditLocation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingLocationId) return;
+    setSubmitting(true);
+    try {
+      await locationsService.update(editingLocationId, {
+        name: locationForm.name,
+        address: locationForm.address,
+        phone: locationForm.phone,
+        email: locationForm.email,
+        status: locationForm.status === 'Active' ? 'ACTIVE' : 'INACTIVE',
+        staffCount: locationForm.staff,
+      });
+      await loadLocations();
+      setShowAddModal(false);
+      resetForm();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update location');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -95,16 +145,23 @@ export function LocationsPage() {
     setShowAddModal(true);
   };
 
-  const openDeleteDialog = (locationId: number) => {
+  const openDeleteDialog = (locationId: string) => {
     setPendingDeleteLocationId(locationId);
     setDeleteDialogOpen(true);
   };
 
-  const handleConfirmDeleteLocation = () => {
-    if (pendingDeleteLocationId !== null) {
-      setLocations(locations.filter(loc => loc.id !== pendingDeleteLocationId));
+  const handleConfirmDeleteLocation = async () => {
+    if (pendingDeleteLocationId === null) return;
+    setSubmitting(true);
+    try {
+      await locationsService.delete(pendingDeleteLocationId);
       setDeleteDialogOpen(false);
       setPendingDeleteLocationId(null);
+      await loadLocations();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete location');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -115,21 +172,34 @@ export function LocationsPage() {
 
   const totalStaff = locations.reduce((sum, loc) => sum + loc.staff, 0);
   const activeLocations = locations.filter(loc => loc.status === 'Active').length;
+  const inactiveLocations = locations.filter(loc => loc.status === 'Inactive').length;
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-4 py-3 text-red-800 dark:text-red-200">
+          {error}
+        </div>
+      )}
+      {loading && !locations.length ? (
+        <div className="flex items-center justify-center py-12 text-gray-500 dark:text-gray-400">
+          Loading locations...
+        </div>
+      ) : (
+        <>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-semibold text-gray-900">Locations</h2>
-          <p className="text-sm text-gray-600 mt-1">Manage store locations and branches</p>
+          <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">Locations</h2>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Manage store locations and branches</p>
         </div>
         <button
           onClick={() => {
             resetForm();
             setShowAddModal(true);
           }}
-          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+          disabled={loading}
+          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Plus className="w-5 h-5" />
           Add Location
@@ -138,29 +208,27 @@ export function LocationsPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white rounded-lg shadow p-6">
-          <p className="text-sm text-gray-600">Total Locations</p>
-          <p className="text-2xl font-semibold text-gray-900 mt-1">{locations.length}</p>
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700">
+          <p className="text-sm text-gray-600 dark:text-gray-400">Total Locations</p>
+          <p className="text-2xl font-semibold text-gray-900 dark:text-white mt-1">{locations.length}</p>
         </div>
-        <div className="bg-white rounded-lg shadow p-6">
-          <p className="text-sm text-gray-600">Active Locations</p>
-          <p className="text-2xl font-semibold text-green-600 mt-1">{activeLocations}</p>
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700">
+          <p className="text-sm text-gray-600 dark:text-gray-400">Active Locations</p>
+          <p className="text-2xl font-semibold text-green-600 dark:text-green-400 mt-1">{activeLocations}</p>
         </div>
-        <div className="bg-white rounded-lg shadow p-6">
-          <p className="text-sm text-gray-600">Total Staff</p>
-          <p className="text-2xl font-semibold text-blue-600 mt-1">{totalStaff}</p>
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700">
+          <p className="text-sm text-gray-600 dark:text-gray-400">Total Staff</p>
+          <p className="text-2xl font-semibold text-blue-600 dark:text-blue-400 mt-1">{totalStaff}</p>
         </div>
-        <div className="bg-white rounded-lg shadow p-6">
-          <p className="text-sm text-gray-600">Under Renovation</p>
-          <p className="text-2xl font-semibold text-yellow-600 mt-1">
-            {locations.filter(loc => loc.status === 'Under Renovation').length}
-          </p>
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700">
+          <p className="text-sm text-gray-600 dark:text-gray-400">Inactive</p>
+          <p className="text-2xl font-semibold text-yellow-600 dark:text-yellow-400 mt-1">{inactiveLocations}</p>
         </div>
       </div>
 
       {/* Search */}
-      <div className="bg-white rounded-lg shadow">
-        <div className="p-4 border-b border-gray-200">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700">
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
@@ -168,7 +236,7 @@ export function LocationsPage() {
               placeholder="Search locations..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
             />
           </div>
         </div>
@@ -176,40 +244,38 @@ export function LocationsPage() {
         {/* Locations List */}
         <div className="p-6 space-y-4">
           {filteredLocations.map((location) => (
-            <div key={location.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
+            <div key={location.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-6 hover:shadow-md transition-shadow bg-white dark:bg-gray-800">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <div className="flex items-start gap-4">
-                    <div className="bg-blue-100 p-3 rounded-lg">
-                      <MapPin className="w-6 h-6 text-blue-600" />
+                    <div className="bg-blue-100 dark:bg-blue-900/30 p-3 rounded-lg">
+                      <MapPin className="w-6 h-6 text-blue-600 dark:text-blue-400" />
                     </div>
                     <div className="flex-1">
                       <div className="flex items-start justify-between">
                         <div>
-                          <h3 className="text-lg font-semibold text-gray-900">{location.name}</h3>
-                          <p className="text-sm text-gray-600 mt-1">{location.address}</p>
+                          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{location.name}</h3>
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{location.address}</p>
                         </div>
                         <span className={`px-3 py-1 text-xs font-semibold rounded-full ${
-                          location.status === 'Active' 
-                            ? 'bg-green-100 text-green-800' 
-                            : location.status === 'Under Renovation'
-                            ? 'bg-yellow-100 text-yellow-800'
-                            : 'bg-red-100 text-red-800'
+                          location.status === 'Active'
+                            ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-400'
                         }`}>
                           {location.status}
                         </span>
                       </div>
                       
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                           <Phone className="w-4 h-4" />
                           {location.phone}
                         </div>
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                           <Mail className="w-4 h-4" />
                           {location.email}
                         </div>
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                           <Users className="w-4 h-4" />
                           <span className="font-semibold">{location.staff}</span> staff members
                         </div>
@@ -245,10 +311,12 @@ export function LocationsPage() {
 
         {filteredLocations.length === 0 && (
           <div className="p-12 text-center">
-            <p className="text-gray-500">No locations found</p>
+            <p className="text-gray-500 dark:text-gray-400">No locations found</p>
           </div>
         )}
       </div>
+        </>
+      )}
 
       {/* Add/Edit Location Modal */}
       {showAddModal && (
@@ -325,17 +393,16 @@ export function LocationsPage() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Status
                   </label>
                   <select
                     value={locationForm.status}
                     onChange={(e) => setLocationForm({ ...locationForm, status: e.target.value as Location['status'] })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   >
                     <option value="Active">Active</option>
-                    <option value="Under Renovation">Under Renovation</option>
-                    <option value="Closed">Closed</option>
+                    <option value="Inactive">Inactive</option>
                   </select>
                 </div>
                 <div>
@@ -365,9 +432,10 @@ export function LocationsPage() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                 >
-                  {isEditMode ? 'Update Location' : 'Add Location'}
+                  {submitting ? 'Saving...' : isEditMode ? 'Update Location' : 'Add Location'}
                 </button>
               </div>
             </form>
@@ -411,13 +479,11 @@ export function LocationsPage() {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <p className="text-sm text-gray-600">Status</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Status</p>
                       <span className={`inline-block px-3 py-1 text-xs font-semibold rounded-full mt-1 ${
-                        selectedLocation.status === 'Active' 
-                          ? 'bg-green-100 text-green-800' 
-                          : selectedLocation.status === 'Under Renovation'
-                          ? 'bg-yellow-100 text-yellow-800'
-                          : 'bg-red-100 text-red-800'
+                        selectedLocation.status === 'Active'
+                          ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400'
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-400'
                       }`}>
                         {selectedLocation.status}
                       </span>
@@ -460,6 +526,7 @@ export function LocationsPage() {
         title="Delete location"
         description="Are you sure you want to delete this location? This action cannot be undone."
         onConfirm={handleConfirmDeleteLocation}
+        isLoading={submitting}
       />
     </div>
   );

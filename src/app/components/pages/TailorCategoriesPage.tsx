@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Plus, Edit, Trash2, ArrowLeft, ChevronRight, X, GripVertical } from 'lucide-react';
 import { useTailorCategories, Category, SubCategory } from '@/contexts/TailorCategoriesContext';
 import { DndProvider, useDrag, useDrop } from 'react-dnd';
@@ -12,7 +12,7 @@ const ItemTypes = {
 
 interface DragItem {
   index: number;
-  id: number;
+  id: string;
   type: string;
 }
 
@@ -21,7 +21,7 @@ interface DraggableCategoryRowProps {
   index: number;
   onSelect: (category: Category) => void;
   onEdit: (category: Category) => void;
-  onDelete: (categoryId: number) => void;
+  onDelete: (categoryId: string) => void;
   moveCategory: (dragIndex: number, hoverIndex: number) => void;
 }
 
@@ -150,7 +150,7 @@ interface DraggableSubCategoryRowProps {
   subcategory: SubCategory;
   index: number;
   onEdit: (subcategory: SubCategory) => void;
-  onDelete: (subcategoryId: number) => void;
+  onDelete: (subcategoryId: string) => void;
   moveSubCategory: (dragIndex: number, hoverIndex: number) => void;
 }
 
@@ -261,15 +261,22 @@ function DraggableSubCategoryRow({
 }
 
 export function TailorCategoriesPage() {
-  const { 
-    categories, 
-    subCategoriesData, 
-    setCategories, 
-    setSubCategoriesData,
+  const {
+    categories,
+    subCategoriesData,
+    loading,
+    error,
+    loadSubCategories,
     reorderCategories,
-    reorderSubCategories
+    reorderSubCategories,
+    createCategory,
+    updateCategory,
+    deleteCategory,
+    createSubCategory,
+    updateSubCategory,
+    deleteSubCategory,
   } = useTailorCategories();
-  
+
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false);
   const [isEditCategoryModalOpen, setIsEditCategoryModalOpen] = useState(false);
@@ -277,7 +284,8 @@ export function TailorCategoriesPage() {
   const [isEditSubCategoryModalOpen, setIsEditSubCategoryModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [editingSubCategory, setEditingSubCategory] = useState<SubCategory | null>(null);
-  
+  const [submitting, setSubmitting] = useState(false);
+
   const [categoryForm, setCategoryForm] = useState({
     name: '',
     description: '',
@@ -291,8 +299,12 @@ export function TailorCategoriesPage() {
   });
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<
-    { type: 'category'; id: number } | { type: 'subcategory'; id: number; categoryId: number } | null
+    { type: 'category'; id: string } | { type: 'subcategory'; id: string; categoryId: string } | null
   >(null);
+
+  useEffect(() => {
+    if (selectedCategory) loadSubCategories(selectedCategory.id);
+  }, [selectedCategory, loadSubCategories]);
 
   // Drag and drop handlers
   const moveCategoryHandler = (dragIndex: number, hoverIndex: number) => {
@@ -306,58 +318,60 @@ export function TailorCategoriesPage() {
   };
 
   // Category CRUD operations
-  const handleAddCategory = (e: React.FormEvent) => {
+  const handleAddCategory = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newCategory: Category = {
-      id: Math.max(...categories.map(c => c.id), 0) + 1,
-      name: categoryForm.name,
-      description: categoryForm.description,
-      orders: 0,
-      status: categoryForm.status,
-      position: categories.length,
-    };
-    setCategories([...categories, newCategory]);
-    setSubCategoriesData({ ...subCategoriesData, [newCategory.id]: [] });
-    setIsAddCategoryModalOpen(false);
-    setCategoryForm({ name: '', description: '', status: 'Active' });
+    setSubmitting(true);
+    try {
+      await createCategory({
+        name: categoryForm.name,
+        description: categoryForm.description,
+        status: categoryForm.status,
+        sortOrder: categories.length,
+      });
+      setIsAddCategoryModalOpen(false);
+      setCategoryForm({ name: '', description: '', status: 'Active' });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleEditCategory = (e: React.FormEvent) => {
+  const handleEditCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingCategory) return;
-    
-    setCategories(categories.map(cat => 
-      cat.id === editingCategory.id 
-        ? { ...cat, name: categoryForm.name, description: categoryForm.description, status: categoryForm.status }
-        : cat
-    ));
-    setIsEditCategoryModalOpen(false);
-    setEditingCategory(null);
-    setCategoryForm({ name: '', description: '', status: 'Active' });
+    setSubmitting(true);
+    try {
+      await updateCategory(editingCategory.id, {
+        name: categoryForm.name,
+        description: categoryForm.description,
+        status: categoryForm.status,
+      });
+      setIsEditCategoryModalOpen(false);
+      setEditingCategory(null);
+      setCategoryForm({ name: '', description: '', status: 'Active' });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const openDeleteCategoryDialog = (categoryId: number) => {
+  const openDeleteCategoryDialog = (categoryId: string) => {
     setPendingDelete({ type: 'category', id: categoryId });
     setDeleteDialogOpen(true);
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!pendingDelete) return;
-    if (pendingDelete.type === 'category') {
-      setCategories(categories.filter(cat => cat.id !== pendingDelete.id));
-      const newSubCategoriesData = { ...subCategoriesData };
-      delete newSubCategoriesData[pendingDelete.id];
-      setSubCategoriesData(newSubCategoriesData);
-    } else {
-      setSubCategoriesData({
-        ...subCategoriesData,
-        [pendingDelete.categoryId]: subCategoriesData[pendingDelete.categoryId].filter(
-          sub => sub.id !== pendingDelete.id
-        ),
-      });
+    setSubmitting(true);
+    try {
+      if (pendingDelete.type === 'category') {
+        await deleteCategory(pendingDelete.id);
+      } else {
+        await deleteSubCategory(pendingDelete.id, pendingDelete.categoryId);
+      }
+      setDeleteDialogOpen(false);
+      setPendingDelete(null);
+    } finally {
+      setSubmitting(false);
     }
-    setDeleteDialogOpen(false);
-    setPendingDelete(null);
   };
 
   const openEditCategoryModal = (category: Category) => {
@@ -371,46 +385,42 @@ export function TailorCategoriesPage() {
   };
 
   // Sub-category CRUD operations
-  const handleAddSubCategory = (e: React.FormEvent) => {
+  const handleAddSubCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCategory) return;
-
-    const currentSubs = subCategoriesData[selectedCategory.id] || [];
-    const newSubCategory: SubCategory = {
-      id: Math.max(...currentSubs.map(s => s.id), 0) + 1,
-      name: subCategoryForm.name,
-      description: subCategoryForm.description,
-      orders: 0,
-      status: subCategoryForm.status,
-      position: currentSubs.length,
-    };
-
-    setSubCategoriesData({
-      ...subCategoriesData,
-      [selectedCategory.id]: [...currentSubs, newSubCategory],
-    });
-    setIsAddSubCategoryModalOpen(false);
-    setSubCategoryForm({ name: '', description: '', status: 'Active' });
+    setSubmitting(true);
+    try {
+      await createSubCategory(selectedCategory.id, {
+        name: subCategoryForm.name,
+        description: subCategoryForm.description,
+        status: subCategoryForm.status,
+      });
+      setIsAddSubCategoryModalOpen(false);
+      setSubCategoryForm({ name: '', description: '', status: 'Active' });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleEditSubCategory = (e: React.FormEvent) => {
+  const handleEditSubCategory = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedCategory || !editingSubCategory) return;
-
-    setSubCategoriesData({
-      ...subCategoriesData,
-      [selectedCategory.id]: subCategoriesData[selectedCategory.id].map(sub =>
-        sub.id === editingSubCategory.id
-          ? { ...sub, name: subCategoryForm.name, description: subCategoryForm.description, status: subCategoryForm.status }
-          : sub
-      ),
-    });
-    setIsEditSubCategoryModalOpen(false);
-    setEditingSubCategory(null);
-    setSubCategoryForm({ name: '', description: '', status: 'Active' });
+    if (!editingSubCategory) return;
+    setSubmitting(true);
+    try {
+      await updateSubCategory(editingSubCategory.id, {
+        name: subCategoryForm.name,
+        description: subCategoryForm.description,
+        status: subCategoryForm.status,
+      });
+      setIsEditSubCategoryModalOpen(false);
+      setEditingSubCategory(null);
+      setSubCategoryForm({ name: '', description: '', status: 'Active' });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const openDeleteSubCategoryDialog = (subcategoryId: number) => {
+  const openDeleteSubCategoryDialog = (subcategoryId: string) => {
     if (!selectedCategory) return;
     setPendingDelete({ type: 'subcategory', id: subcategoryId, categoryId: selectedCategory.id });
     setDeleteDialogOpen(true);
@@ -429,95 +439,102 @@ export function TailorCategoriesPage() {
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="space-y-6">
-        {/* Header */}
-        {!selectedCategory ? (
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Tailor Categories</h1>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                Manage categories and sub-categories for tailoring services. Drag to reorder.
-              </p>
-            </div>
-            <button
-              onClick={() => setIsAddCategoryModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Add Category
-            </button>
-          </div>
-        ) : (
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setSelectedCategory(null)}
-                className="p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <div>
-                <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">
-                  {selectedCategory.name} - Sub-categories
-                </h1>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                  Manage sub-categories for {selectedCategory.name}. Drag to reorder.
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => setIsAddSubCategoryModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Add Sub-category
-            </button>
+        {error && (
+          <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-4 py-3 text-red-800 dark:text-red-200">
+            {error}
           </div>
         )}
-
-        {/* Categories Table */}
-        {!selectedCategory ? (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-              <thead className="bg-gray-50 dark:bg-gray-900">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Order
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Category Name
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Description
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Orders
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                {categories.map((category, index) => (
-                  <DraggableCategoryRow
-                    key={category.id}
-                    category={category}
-                    index={index}
-                    onSelect={setSelectedCategory}
-                    onEdit={openEditCategoryModal}
-                    onDelete={openDeleteCategoryDialog}
-                    moveCategory={moveCategoryHandler}
-                  />
-                ))}
-              </tbody>
-            </table>
+        {loading && !categories.length ? (
+          <div className="flex items-center justify-center py-12 text-gray-500 dark:text-gray-400">
+            Loading categories...
           </div>
+        ) : !selectedCategory ? (
+          <>
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Tailor Categories</h1>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  Manage categories and sub-categories for tailoring services. Drag to reorder.
+                </p>
+              </div>
+              <button
+                onClick={() => setIsAddCategoryModalOpen(true)}
+                disabled={loading}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-4 h-4" />
+                Add Category
+              </button>
+            </div>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead className="bg-gray-50 dark:bg-gray-900">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Order
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Category Name
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Description
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Orders
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                  {categories.map((category, index) => (
+                    <DraggableCategoryRow
+                      key={category.id}
+                      category={category}
+                      index={index}
+                      onSelect={setSelectedCategory}
+                      onEdit={openEditCategoryModal}
+                      onDelete={openDeleteCategoryDialog}
+                      moveCategory={moveCategoryHandler}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         ) : (
-          // Sub-categories Table
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setSelectedCategory(null)}
+                  className="p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <div>
+                  <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">
+                    {selectedCategory.name} - Sub-categories
+                  </h1>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    Manage sub-categories for {selectedCategory.name}. Drag to reorder.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsAddSubCategoryModalOpen(true)}
+                disabled={loading}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-4 h-4" />
+                Add Sub-category
+              </button>
+            </div>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 overflow-hidden">
             <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
               <thead className="bg-gray-50 dark:bg-gray-900">
                 <tr>
@@ -554,7 +571,8 @@ export function TailorCategoriesPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
 
         {/* Add Category Modal */}
@@ -617,9 +635,10 @@ export function TailorCategoriesPage() {
                   </button>
                   <button
                     type="submit"
-                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    disabled={submitting}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                   >
-                    Add Category
+                    {submitting ? 'Adding...' : 'Add Category'}
                   </button>
                 </div>
               </form>
@@ -691,9 +710,10 @@ export function TailorCategoriesPage() {
                   </button>
                   <button
                     type="submit"
-                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    disabled={submitting}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                   >
-                    Save Changes
+                    {submitting ? 'Saving...' : 'Save Changes'}
                   </button>
                 </div>
               </form>
@@ -763,9 +783,10 @@ export function TailorCategoriesPage() {
                   </button>
                   <button
                     type="submit"
-                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    disabled={submitting}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                   >
-                    Add Sub-category
+                    {submitting ? 'Adding...' : 'Add Sub-category'}
                   </button>
                 </div>
               </form>
@@ -837,9 +858,10 @@ export function TailorCategoriesPage() {
                   </button>
                   <button
                     type="submit"
-                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    disabled={submitting}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                   >
-                    Save Changes
+                    {submitting ? 'Saving...' : 'Save Changes'}
                   </button>
                 </div>
               </form>
@@ -860,6 +882,7 @@ export function TailorCategoriesPage() {
               : 'Are you sure you want to delete this sub-category? This action cannot be undone.'
           }
           onConfirm={handleConfirmDelete}
+          isLoading={submitting}
         />
       </div>
     </DndProvider>

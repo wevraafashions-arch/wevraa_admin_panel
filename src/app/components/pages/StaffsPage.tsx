@@ -1,6 +1,8 @@
-import { useState } from 'react';
-import { Plus, Edit2, Trash2, X, Briefcase, Settings } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Plus, Edit2, Trash2, X, Briefcase } from 'lucide-react';
 import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
+import { staffCategoriesService } from '@/app/api/services/staffCategoriesService';
+import type { ApiRequiredField } from '@/app/api/types/staffCategory';
 
 interface FieldConfig {
   id: string;
@@ -19,95 +21,103 @@ interface StaffCategory {
   fields: FieldConfig[];
 }
 
+const COLOR_OPTIONS: { value: string; label: string; theme: string }[] = [
+  { value: '#3B82F6', label: 'Blue', theme: 'blue' },
+  { value: '#8B5CF6', label: 'Purple', theme: 'purple' },
+  { value: '#EC4899', label: 'Pink', theme: 'pink' },
+  { value: '#10B981', label: 'Green', theme: 'green' },
+  { value: '#F59E0B', label: 'Orange', theme: 'orange' },
+  { value: '#EF4444', label: 'Red', theme: 'red' },
+  { value: '#6366F1', label: 'Indigo', theme: 'indigo' },
+  { value: '#14B8A6', label: 'Teal', theme: 'teal' },
+];
+
+const themeToHex: Record<string, string> = Object.fromEntries(
+  COLOR_OPTIONS.map((o) => [o.theme, o.value])
+);
+const hexToTheme: Record<string, string> = Object.fromEntries(
+  COLOR_OPTIONS.map((o) => [o.value, o.theme])
+);
+
+function apiFieldToUi(f: ApiRequiredField, index: number): FieldConfig {
+  const type = (f.type?.toLowerCase() || 'text') as 'text' | 'number' | 'email' | 'phone';
+  const t = ['text', 'number', 'email', 'phone'].includes(type) ? type : 'text';
+  return {
+    id: `f-${index}`,
+    name: f.label || '',
+    type: t,
+    required: !!f.required,
+  };
+}
+
+function uiFieldToApi(f: FieldConfig): ApiRequiredField {
+  const typeMap: Record<string, string> = {
+    text: 'Text',
+    number: 'Number',
+    email: 'Email',
+    phone: 'Phone',
+  };
+  return {
+    label: f.name,
+    type: typeMap[f.type] || 'Text',
+    required: f.required,
+  };
+}
+
+function apiToUiCategory(api: { id: string; name: string; description: string; colorTheme?: string; status: string; requiredFields?: ApiRequiredField[]; createdAt?: string }): StaffCategory {
+  const color = (api.colorTheme && themeToHex[api.colorTheme]) || COLOR_OPTIONS[0].value;
+  const status = api.status === 'ACTIVE' ? 'active' : 'inactive';
+  const fields: FieldConfig[] = (api.requiredFields || []).map(apiFieldToUi);
+  return {
+    id: api.id,
+    name: api.name,
+    description: api.description,
+    color,
+    status,
+    createdAt: api.createdAt || new Date().toISOString().split('T')[0],
+    fields: fields.length ? fields : [{ id: '1', name: 'Name', type: 'text', required: true }, { id: '2', name: 'Phone', type: 'phone', required: true }],
+  };
+}
+
 export function StaffsPage() {
+  const [categories, setCategories] = useState<StaffCategory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingDeleteCategoryId, setPendingDeleteCategoryId] = useState<string | null>(null);
-  const [categories, setCategories] = useState<StaffCategory[]>([
-    {
-      id: '1',
-      name: 'Hand Embroidery',
-      description: 'Skilled workers specializing in hand embroidery work',
-      color: '#8B5CF6',
-      status: 'active',
-      createdAt: '2024-01-15',
-      fields: [
-        { id: '1', name: 'Name', type: 'text', required: true },
-        { id: '2', name: 'Phone', type: 'phone', required: true },
-      ],
-    },
-    {
-      id: '2',
-      name: 'Machine Embroidery',
-      description: 'Workers trained in machine embroidery operations',
-      color: '#3B82F6',
-      status: 'active',
-      createdAt: '2024-01-15',
-      fields: [
-        { id: '1', name: 'Name', type: 'text', required: true },
-        { id: '2', name: 'Phone', type: 'phone', required: true },
-      ],
-    },
-    {
-      id: '3',
-      name: 'Cutting',
-      description: 'Expert fabric cutting specialists',
-      color: '#EC4899',
-      status: 'active',
-      createdAt: '2024-01-16',
-      fields: [
-        { id: '1', name: 'Name', type: 'text', required: true },
-        { id: '2', name: 'Phone', type: 'phone', required: true },
-      ],
-    },
-    {
-      id: '4',
-      name: 'Stitching',
-      description: 'Professional stitching and sewing workers',
-      color: '#10B981',
-      status: 'active',
-      createdAt: '2024-01-16',
-      fields: [
-        { id: '1', name: 'Name', type: 'text', required: true },
-        { id: '2', name: 'Phone', type: 'phone', required: true },
-      ],
-    },
-    {
-      id: '5',
-      name: 'Finishing',
-      description: 'Quality finishing and final touches specialists',
-      color: '#F59E0B',
-      status: 'active',
-      createdAt: '2024-01-17',
-      fields: [
-        { id: '1', name: 'Name', type: 'text', required: true },
-        { id: '2', name: 'Phone', type: 'phone', required: true },
-      ],
-    },
-  ]);
-
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<StaffCategory | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     color: '#3B82F6',
     status: 'active' as 'active' | 'inactive',
     fields: [
-      { id: '1', name: 'Name', type: 'text', required: true },
-      { id: '2', name: 'Phone', type: 'phone', required: true },
+      { id: '1', name: 'Name', type: 'text' as const, required: true },
+      { id: '2', name: 'Phone', type: 'phone' as const, required: true },
     ],
   });
 
-  const colorOptions = [
-    { value: '#3B82F6', label: 'Blue' },
-    { value: '#8B5CF6', label: 'Purple' },
-    { value: '#EC4899', label: 'Pink' },
-    { value: '#10B981', label: 'Green' },
-    { value: '#F59E0B', label: 'Amber' },
-    { value: '#EF4444', label: 'Red' },
-    { value: '#6366F1', label: 'Indigo' },
-    { value: '#14B8A6', label: 'Teal' },
-  ];
+  const colorOptions = COLOR_OPTIONS;
+
+  const loadCategories = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const list = await staffCategoriesService.getList();
+      setCategories(list.map(apiToUiCategory));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load staff categories');
+      setCategories([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCategories();
+  }, [loadCategories]);
 
   const openAddModal = () => {
     setEditingCategory(null);
@@ -131,32 +141,36 @@ export function StaffsPage() {
       description: category.description,
       color: category.color,
       status: category.status,
-      fields: category.fields,
+      fields: category.fields.map((f, i) => ({ ...f, id: f.id || `f-${i}` })),
     });
     setIsModalOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (editingCategory) {
-      // Update existing category
-      setCategories(categories.map(cat => 
-        cat.id === editingCategory.id 
-          ? { ...cat, ...formData }
-          : cat
-      ));
-    } else {
-      // Add new category
-      const newCategory: StaffCategory = {
-        id: Date.now().toString(),
-        ...formData,
-        createdAt: new Date().toISOString().split('T')[0],
+    setSubmitting(true);
+    try {
+      const colorTheme = hexToTheme[formData.color] || 'blue';
+      const requiredFields = formData.fields.map(uiFieldToApi);
+      const body = {
+        name: formData.name,
+        description: formData.description,
+        colorTheme,
+        status: formData.status === 'active' ? 'ACTIVE' : 'INACTIVE',
+        requiredFields,
       };
-      setCategories([...categories, newCategory]);
+      if (editingCategory) {
+        await staffCategoriesService.update(editingCategory.id, body);
+      } else {
+        await staffCategoriesService.create(body);
+      }
+      await loadCategories();
+      setIsModalOpen(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save category');
+    } finally {
+      setSubmitting(false);
     }
-    
-    setIsModalOpen(false);
   };
 
   const openDeleteDialog = (id: string) => {
@@ -164,11 +178,18 @@ export function StaffsPage() {
     setDeleteDialogOpen(true);
   };
 
-  const handleConfirmDelete = () => {
-    if (pendingDeleteCategoryId) {
-      setCategories(categories.filter(cat => cat.id !== pendingDeleteCategoryId));
+  const handleConfirmDelete = async () => {
+    if (!pendingDeleteCategoryId) return;
+    setSubmitting(true);
+    try {
+      await staffCategoriesService.delete(pendingDeleteCategoryId);
       setDeleteDialogOpen(false);
       setPendingDeleteCategoryId(null);
+      await loadCategories();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete category');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -176,17 +197,29 @@ export function StaffsPage() {
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-4 py-3 text-red-800 dark:text-red-200">
+          {error}
+        </div>
+      )}
+      {loading && !categories.length ? (
+        <div className="flex items-center justify-center py-12 text-gray-500 dark:text-gray-400">
+          Loading staff categories...
+        </div>
+      ) : (
+        <>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Staff Categories</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Staff Categories</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             Manage different staff specialization categories
           </p>
         </div>
         <button
           onClick={openAddModal}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          disabled={loading}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Plus className="w-5 h-5" />
           Add Category
@@ -195,36 +228,36 @@ export function StaffsPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white p-6 rounded-lg border border-gray-200">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg border border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-blue-100 rounded-lg">
-              <Briefcase className="w-6 h-6 text-blue-600" />
+            <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+              <Briefcase className="w-6 h-6 text-blue-600 dark:text-blue-400" />
             </div>
             <div>
-              <p className="text-sm text-gray-500">Total Categories</p>
-              <p className="text-2xl font-semibold text-gray-900">{categories.length}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Total Categories</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-white">{categories.length}</p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg border border-gray-200">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg border border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-green-100 rounded-lg">
-              <Briefcase className="w-6 h-6 text-green-600" />
+            <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-lg">
+              <Briefcase className="w-6 h-6 text-green-600 dark:text-green-400" />
             </div>
             <div>
-              <p className="text-sm text-gray-500">Active</p>
-              <p className="text-2xl font-semibold text-gray-900">{activeCount}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Active</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-white">{activeCount}</p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg border border-gray-200">
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg border border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-gray-100 rounded-lg">
-              <Briefcase className="w-6 h-6 text-gray-600" />
+            <div className="p-3 bg-gray-100 dark:bg-gray-700 rounded-lg">
+              <Briefcase className="w-6 h-6 text-gray-600 dark:text-gray-400" />
             </div>
             <div>
-              <p className="text-sm text-gray-500">Inactive</p>
-              <p className="text-2xl font-semibold text-gray-900">{categories.length - activeCount}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Inactive</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-white">{categories.length - activeCount}</p>
             </div>
           </div>
         </div>
@@ -235,7 +268,7 @@ export function StaffsPage() {
         {categories.map((category) => (
           <div
             key={category.id}
-            className="bg-white rounded-lg border border-gray-200 hover:shadow-md transition-shadow"
+            className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow"
           >
             <div className="p-6">
               <div className="flex items-start justify-between mb-4">
@@ -247,12 +280,12 @@ export function StaffsPage() {
                     <Briefcase className="w-6 h-6" style={{ color: category.color }} />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-gray-900">{category.name}</h3>
+                    <h3 className="font-semibold text-gray-900 dark:text-white">{category.name}</h3>
                     <span
                       className={`inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full ${
                         category.status === 'active'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-gray-100 text-gray-700'
+                          ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-400'
                       }`}
                     >
                       {category.status}
@@ -261,7 +294,7 @@ export function StaffsPage() {
                 </div>
               </div>
               
-              <p className="text-sm text-gray-600 mb-4">{category.description}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{category.description}</p>
               
               {/* Required Fields */}
               <div className="mb-4">
@@ -293,9 +326,9 @@ export function StaffsPage() {
                 )}
               </div>
               
-              <div className="flex items-center justify-between pt-4 border-t border-gray-100">
-                <span className="text-xs text-gray-500">
-                  Created: {new Date(category.createdAt).toLocaleDateString('en-IN')}
+              <div className="flex items-center justify-between pt-4 border-t border-gray-100 dark:border-gray-700">
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  Created: {category.createdAt ? new Date(category.createdAt).toLocaleDateString('en-IN') : '—'}
                 </span>
                 <div className="flex gap-2">
                   <button
@@ -318,10 +351,10 @@ export function StaffsPage() {
       </div>
 
       {categories.length === 0 && (
-        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-12 text-center">
           <Briefcase className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No staff categories yet</h3>
-          <p className="text-gray-500 mb-6">Get started by creating your first staff category</p>
+          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No staff categories yet</h3>
+          <p className="text-gray-500 dark:text-gray-400 mb-6">Get started by creating your first staff category</p>
           <button
             onClick={openAddModal}
             className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -330,6 +363,8 @@ export function StaffsPage() {
             Add Category
           </button>
         </div>
+      )}
+        </>
       )}
 
       {/* Add/Edit Modal */}
@@ -516,9 +551,10 @@ export function StaffsPage() {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                 >
-                  {editingCategory ? 'Update' : 'Add'} Category
+                  {submitting ? 'Saving...' : editingCategory ? 'Update' : 'Add'} Category
                 </button>
               </div>
             </form>
@@ -535,6 +571,7 @@ export function StaffsPage() {
         title="Delete staff category"
         description="Are you sure you want to delete this staff category? This action cannot be undone."
         onConfirm={handleConfirmDelete}
+        isLoading={submitting}
       />
     </div>
   );

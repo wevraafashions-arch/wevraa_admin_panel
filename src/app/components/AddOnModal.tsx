@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, Upload, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { useTailorCategories } from '@/contexts/TailorCategoriesContext';
 
 interface AddOnModalProps {
   isOpen: boolean;
@@ -57,59 +58,25 @@ export function AddOnModal({ isOpen, onClose, onSave, onOpenGallery, editingAddO
     hooks: ['Front Hooks', 'Back Hooks', 'Side Hooks', 'Hidden Hooks', 'Designer Hooks'],
   };
 
-  // Tailor categories data
-  const tailorCategories = [
-    { id: 1, name: 'Blouse', description: 'Blouse stitching and alterations', orders: 145, status: 'Active' },
-    { id: 2, name: 'Topwear', description: 'Kurtas, shirts, tops, and upper garments', orders: 234, status: 'Active' },
-    { id: 3, name: 'Bottomwear', description: 'Pants, salwars, skirts, and lower garments', orders: 189, status: 'Active' },
-    { id: 4, name: 'Others', description: 'Miscellaneous tailoring services', orders: 67, status: 'Active' },
-  ];
+  const { getActiveCategories, subCategoriesData, loadSubCategories } = useTailorCategories();
+  const categories = getActiveCategories();
 
-  const tailorSubCategories: { [key: number]: any[] } = {
-    1: [
-      { id: 1, name: 'Hand Embroidery' },
-      { id: 2, name: 'Machine Embroidery' },
-      { id: 3, name: 'Princes Cut Blouse' },
-      { id: 4, name: 'Katori Blouse' },
-      { id: 5, name: 'Lining Blouse' },
-      { id: 6, name: 'Lehenga Blouse' },
-      { id: 7, name: 'Plain Blouse' },
-    ],
-    2: [
-      { id: 1, name: 'Gown' },
-      { id: 2, name: 'Kurta' },
-      { id: 3, name: 'Salwar' },
-      { id: 4, name: 'Ghagra' },
-      { id: 5, name: 'Lehenga Blouse' },
-      { id: 6, name: 'Churidar' },
-    ],
-    3: [
-      { id: 1, name: 'Chudi Bottom' },
-      { id: 2, name: 'Salwar Bottom' },
-      { id: 3, name: 'Patiala' },
-      { id: 4, name: 'Palazzo' },
-      { id: 5, name: 'Straight Pant' },
-      { id: 6, name: 'Lehenga Bottom' },
-    ],
-    4: [
-      { id: 1, name: 'Saree Krosha' },
-      { id: 2, name: 'Saree Zig-Zag & Falls' },
-    ],
-  };
-
-  const categories = tailorCategories;
-
-  // Build subcategories object properly from tailor data
-  const getCategoryIdByName = (name: string): number | undefined => {
-    return tailorCategories.find(cat => cat.name === name)?.id;
+  const getCategoryIdByName = (name: string): string | undefined => {
+    return categories.find(cat => cat.name === name)?.id;
   };
 
   const getSubCategoriesForCategory = (categoryName: string): string[] => {
     const categoryId = getCategoryIdByName(categoryName);
     if (!categoryId) return [];
-    const subs = tailorSubCategories[categoryId] || [];
+    const subs = (subCategoriesData[categoryId] || []).filter(s => s.status === 'Active');
     return subs.map(sub => sub.name);
   };
+
+  useEffect(() => {
+    if (!formData.category) return;
+    const cat = categories.find(c => c.name === formData.category);
+    if (cat) loadSubCategories(cat.id);
+  }, [formData.category, categories, loadSubCategories]);
 
   // Pre-fill form when editing
   useEffect(() => {
