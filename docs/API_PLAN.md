@@ -53,6 +53,55 @@ This document describes how API calls are structured and how to add new endpoint
 | PATCH  | `/categories/:id`  | UpdateCategoryRequest   | `Category`             |
 | DELETE | `/categories/:id`  | —                       | —                      |
 
+## GST Rates API reference (frontend integrated)
+
+| Method | Path                 | Body                     | Response     |
+|--------|----------------------|--------------------------|--------------|
+| GET    | `/gst-rates`         | —                        | `GSTRate[]` (each with `hsnCodes` and `_count.hsnCodes`) |
+| GET    | `/gst-rates/:id`     | —                        | `GSTRate` (full `hsnCodes` list) |
+| POST   | `/gst-rates`         | `CreateGSTRateRequest`   | `GSTRate`    |
+| PATCH  | `/gst-rates/:id`     | `UpdateGSTRateRequest`   | `GSTRate`    |
+| DELETE | `/gst-rates/:id`     | —                        | —            |
+
+- **Types:** `src/app/api/types/gstRate.ts`
+- **Service:** `src/app/api/services/gstRatesService.ts`
+- **POST body:** `{ name, percentage, isDefault?, hsnCodes?: [{ code, description }] }`
+- **PATCH body:** Same shape; all fields optional. If `hsnCodes` is sent, it replaces all HSN codes for that rate.
+
+## Designs API reference (frontend integrated)
+
+| Method | Path | Body | Response |
+|--------|------|------|----------|
+| GET | `/designs` | — | `Design[]` |
+| GET | `/designs?categoryId=&subcategoryId=` | — | `Design[]` (filtered) |
+| GET | `/designs/:id` | — | `Design` |
+| POST | `/designs/with-image` | multipart: `image` (file), `designName`, `description`, `categoryId`, `subcategoryId` | `Design` |
+| POST | `/designs` | JSON: `CreateDesignRequest` (designName, description, categoryId, subcategoryId, imageUrl) | `Design` |
+| PATCH | `/designs/:id/with-image` | multipart: `image` (optional), `designName`, `description`, `categoryId`, `subcategoryId` | `Design` |
+| PATCH | `/designs/:id` | JSON: `UpdateDesignRequest` (all optional) | `Design` |
+| DELETE | `/designs/:id` | — | — |
+
+- **Types:** `src/app/api/types/design.ts`
+- **Service:** `src/app/api/services/designsService.ts`
+- **Image:** JPG/PNG/GIF, max 10MB.
+
+## Gallery (My Gallery) API reference (frontend integrated)
+
+| Method | Path | Body | Response |
+|--------|------|------|----------|
+| GET | `/gallery` | — | `GalleryImage[]` |
+| GET | `/gallery?categoryId=&subcategoryId=&isPublic=` | — | `GalleryImage[]` (filtered) |
+| GET | `/gallery/:id` | — | `GalleryImage` |
+| POST | `/gallery/with-image` | multipart: `image`, `title`, `description`, `categoryId`, `subcategoryId`, `tags` (comma-separated), `isPublic` | `GalleryImage` |
+| POST | `/gallery` | JSON: `imageUrl`, `title`, `description`, `categoryId`, `subcategoryId`, `tags` (array), `isPublic` | `GalleryImage` |
+| PATCH | `/gallery/:id/with-image` | multipart: `image` (optional), `title`, `description`, `categoryId`, `subcategoryId`, `tags`, `isPublic` | `GalleryImage` |
+| PATCH | `/gallery/:id` | JSON: partial update | `GalleryImage` |
+| DELETE | `/gallery/:id` | — | — |
+
+- **Types:** `src/app/api/types/gallery.ts`
+- **Service:** `src/app/api/services/galleryService.ts`
+- **Categories:** Use `GET /tailor-categories` (top-level) and `GET /tailor-categories?parentId=<id>` (subcategories).
+
 ## Checklist for new endpoints
 
 - [ ] Add types in `src/app/api/types/` if needed.
