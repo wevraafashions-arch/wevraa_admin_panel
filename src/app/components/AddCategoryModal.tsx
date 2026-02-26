@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
-import { X, Image as ImageIcon } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { X, Image as ImageIcon, Loader2 } from 'lucide-react';
 import type { Category } from '../api/types/category';
 import type { CreateCategoryRequest, UpdateCategoryRequest } from '../api/types/category';
+import { uploadFile } from '../api/services/uploadService';
 
 export type SaveCategoryPayload =
   | CreateCategoryRequest
@@ -35,7 +36,10 @@ export function AddCategoryModal({
     status: 'ACTIVE',
   });
   const [thumbnailImage, setThumbnailImage] = useState<string>('');
+  const [thumbnailUploading, setThumbnailUploading] = useState(false);
+  const [thumbnailUploadError, setThumbnailUploadError] = useState<string | null>(null);
   const [productIdsStr, setProductIdsStr] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (editingCategory) {
@@ -100,14 +104,23 @@ export function AddCategoryModal({
     }
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setThumbnailImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setThumbnailUploadError('Please select an image file (PNG, JPG, etc.)');
+      return;
+    }
+    setThumbnailUploadError(null);
+    setThumbnailUploading(true);
+    try {
+      const url = await uploadFile(file);
+      setThumbnailImage(url);
+    } catch (err) {
+      setThumbnailUploadError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setThumbnailUploading(false);
+      e.target.value = '';
     }
   };
 
@@ -217,8 +230,14 @@ export function AddCategoryModal({
                 Thumbnail Image
               </h3>
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-                URL or upload (recommended size: 800x600px)
+                Upload image via API (recommended size: 800x600px). Same endpoint as product images.
               </p>
+
+              {thumbnailUploadError && (
+                <div className="mb-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 text-sm">
+                  {thumbnailUploadError}
+                </div>
+              )}
 
               {thumbnailImage ? (
                 <div className="relative">
@@ -229,34 +248,49 @@ export function AddCategoryModal({
                   />
                   <button
                     type="button"
-                    onClick={() => setThumbnailImage('')}
+                    onClick={() => { setThumbnailImage(''); setThumbnailUploadError(null); }}
                     className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
                   >
                     <X className="w-4 h-4" />
                   </button>
                 </div>
               ) : (
-                <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8">
-                  <div className="flex flex-col items-center justify-center text-center">
-                    <div className="w-12 h-12 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center mb-3">
-                      <ImageIcon className="w-6 h-6 text-gray-400" />
-                    </div>
-                    <label htmlFor="category-image" className="cursor-pointer">
-                      <span className="text-blue-600 hover:text-blue-700 font-medium">
-                        Click to upload
-                      </span>
-                      <span className="text-gray-500 dark:text-gray-400"> or drag and drop</span>
-                    </label>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      PNG, JPG up to 10MB
-                    </p>
-                    <input
-                      id="category-image"
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageUpload}
-                      className="hidden"
-                    />
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => !thumbnailUploading && fileInputRef.current?.click()}
+                  onKeyDown={(e) => e.key === 'Enter' && !thumbnailUploading && fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8 cursor-pointer hover:border-blue-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+                >
+                  <input
+                    ref={fileInputRef}
+                    id="category-image"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    className="sr-only"
+                    aria-hidden
+                  />
+                  <div className="flex flex-col items-center justify-center text-center pointer-events-none">
+                    {thumbnailUploading ? (
+                      <>
+                        <Loader2 className="w-10 h-10 text-blue-500 animate-spin mb-3" />
+                        <p className="text-sm text-gray-600 dark:text-gray-400">Uploading…</p>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-12 h-12 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center mb-3">
+                          <ImageIcon className="w-6 h-6 text-gray-400" />
+                        </div>
+                        <span className="text-blue-600 hover:text-blue-700 font-medium">
+                          Click to upload
+                        </span>
+                        <span className="text-gray-500 dark:text-gray-400"> or drag and drop</span>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          PNG, JPG up to 10MB
+                        </p>
+                      </>
+                    )}
                   </div>
                 </div>
               )}

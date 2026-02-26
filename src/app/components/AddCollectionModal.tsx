@@ -3,15 +3,17 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { collectionsService } from '../api/services/collectionsService';
 import { productsService } from '../api/services/productsService';
 import type { Product } from '../api/types/product';
+import type { Collection } from '../api/types/collection';
 import { ApiError } from '../api/client';
 
 interface AddCollectionModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreated?: () => void;
+  editingCollection?: Collection | null;
 }
 
-export function AddCollectionModal({ isOpen, onClose, onCreated }: AddCollectionModalProps) {
+export function AddCollectionModal({ isOpen, onClose, onCreated, editingCollection = null }: AddCollectionModalProps) {
   const [collectionType, setCollectionType] = useState<'MANUAL' | 'SMART'>('MANUAL');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -50,6 +52,27 @@ export function AddCollectionModal({ isOpen, onClose, onCreated }: AddCollection
       fetchProducts();
     }
   }, [isOpen, fetchProducts]);
+
+  // Pre-fill form when editing
+  useEffect(() => {
+    if (isOpen && editingCollection) {
+      setTitle(editingCollection.title ?? '');
+      setDescription(editingCollection.description ?? '');
+      setCollectionType((editingCollection.type === 'SMART' ? 'SMART' : 'MANUAL') as 'MANUAL' | 'SMART');
+      setThemeTemplate(editingCollection.themeTemplate ?? 'default');
+      setSalesChannels({
+        onlineStore: editingCollection.publishOnlineStore ?? false,
+        pointOfSale: editingCollection.publishPOS ?? false,
+      });
+      setSelectedProductIds(editingCollection.products?.map((p) => p.id) ?? []);
+      setImageFile(null);
+      setImagePreview(editingCollection.image ?? null);
+      setError(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } else if (isOpen && !editingCollection) {
+      resetForm();
+    }
+  }, [isOpen, editingCollection]);
 
   const filteredAndSortedProducts = products
     .filter(
@@ -127,13 +150,33 @@ export function AddCollectionModal({ isOpen, onClose, onCreated }: AddCollection
         publishPOS: salesChannels.pointOfSale,
         productIds: selectedProductIds.length > 0 ? selectedProductIds : undefined,
       };
-      if (imageFile) {
-        await collectionsService.createWithImage({
-          ...common,
-          image: imageFile,
-        });
+
+      if (editingCollection) {
+        if (imageFile) {
+          await collectionsService.updateWithImage(editingCollection.id, {
+            ...common,
+            image: imageFile,
+          });
+        } else {
+          await collectionsService.update(editingCollection.id, {
+            title: common.title,
+            description: common.description,
+            themeTemplate: common.themeTemplate,
+            type: common.type,
+            publishOnlineStore: common.publishOnlineStore,
+            publishPOS: common.publishPOS,
+            productIds: common.productIds,
+          });
+        }
       } else {
-        await collectionsService.create(common);
+        if (imageFile) {
+          await collectionsService.createWithImage({
+            ...common,
+            image: imageFile,
+          });
+        } else {
+          await collectionsService.create(common);
+        }
       }
 
       resetForm();
@@ -141,7 +184,7 @@ export function AddCollectionModal({ isOpen, onClose, onCreated }: AddCollection
       onClose();
     } catch (e) {
       const message =
-        e instanceof ApiError ? e.message : 'Failed to create collection';
+        e instanceof ApiError ? e.message : (editingCollection ? 'Failed to update collection' : 'Failed to create collection');
       setError(message);
     } finally {
       setSaving(false);
@@ -162,7 +205,7 @@ export function AddCollectionModal({ isOpen, onClose, onCreated }: AddCollection
               >
                 <X className="w-5 h-5 text-gray-600 dark:text-gray-400" />
               </button>
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Add collection</h2>
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">{editingCollection ? 'Edit collection' : 'Add collection'}</h2>
             </div>
             <div className="flex items-center gap-3">
               <button

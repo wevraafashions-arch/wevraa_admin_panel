@@ -1,10 +1,10 @@
 import {
   Plus,
-  Search,
   Grid3x3,
   ArrowLeft,
   Package,
   Trash2,
+  Edit,
 } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { AddCollectionModal } from '../AddCollectionModal';
@@ -18,6 +18,7 @@ export function CollectionsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
   const [viewingCollection, setViewingCollection] = useState<Collection | null>(null);
   const [collectionToDelete, setCollectionToDelete] = useState<Collection | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
@@ -122,6 +123,17 @@ export function CollectionsPage() {
               </p>
             </div>
           </div>
+          <button
+            onClick={() => {
+              setEditingCollection(viewingCollection);
+              setViewingCollection(null);
+              setShowAddModal(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          >
+            <Edit className="w-4 h-4" />
+            Edit collection
+          </button>
         </div>
 
         {viewingCollection.description && (
@@ -195,7 +207,7 @@ export function CollectionsPage() {
           </h2>
         </div>
         <button
-          onClick={() => setShowAddModal(true)}
+          onClick={() => { setEditingCollection(null); setShowAddModal(true); }}
           className="flex items-center gap-2 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 px-4 py-2 rounded-lg hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors"
         >
           <Plus className="w-5 h-5" />
@@ -294,17 +306,29 @@ export function CollectionsPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
                       {collection.type ?? '—'}
                     </td>
-                    <td
-                      className="px-6 py-4 whitespace-nowrap text-right"
-                      onClick={(e) => handleDeleteClick(e, collection)}
-                    >
-                      <button
-                        disabled={actionLoading}
-                        className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors disabled:opacity-50"
-                        title="Delete collection"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingCollection(collection);
+                            setShowAddModal(true);
+                          }}
+                          disabled={actionLoading}
+                          className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors disabled:opacity-50"
+                          title="Edit collection"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => handleDeleteClick(e, collection)}
+                          disabled={actionLoading}
+                          className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors disabled:opacity-50"
+                          title="Delete collection"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -322,7 +346,7 @@ export function CollectionsPage() {
                 Create a collection to group products.
               </p>
               <button
-                onClick={() => setShowAddModal(true)}
+                onClick={() => { setEditingCollection(null); setShowAddModal(true); }}
                 className="inline-flex items-center gap-2 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 px-4 py-2 rounded-lg hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors"
               >
                 <Plus className="w-5 h-5" />
@@ -335,8 +359,9 @@ export function CollectionsPage() {
 
       <AddCollectionModal
         isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
+        onClose={() => { setShowAddModal(false); setEditingCollection(null); }}
         onCreated={fetchCollections}
+        editingCollection={editingCollection}
       />
     </div>
   );
