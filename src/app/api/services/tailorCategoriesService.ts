@@ -16,6 +16,11 @@ function buildListUrl(parentId?: string | null): string {
 }
 
 export const tailorCategoriesService = {
+  /** GET /tailor-categories/tree – categories with nested children (subcategories). */
+  async getTree(): Promise<ApiTailorCategory[]> {
+    return apiClient<ApiTailorCategory[]>(`${TAILOR_CATEGORIES_PATH}/tree`, { method: 'GET' });
+  },
+
   /** List top-level categories (no parentId) or subcategories (parentId = uuid). */
   async getList(parentId?: string | null): Promise<ApiTailorCategory[]> {
     return apiClient<ApiTailorCategory[]>(buildListUrl(parentId), { method: 'GET' });

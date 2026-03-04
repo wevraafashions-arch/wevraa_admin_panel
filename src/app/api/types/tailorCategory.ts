@@ -1,4 +1,4 @@
-/** Tailor category from API (category or subcategory). children present when from GET /:id */
+/** Tailor category from API (category or subcategory). children present when from tree or GET /:id */
 export interface ApiTailorCategory {
   id: string;
   name: string;
@@ -7,6 +7,8 @@ export interface ApiTailorCategory {
   sortOrder: number;
   parentId: string | null;
   children?: ApiTailorCategory[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 /** Request body for POST /tailor-categories. Omit parentId for top-level. */
