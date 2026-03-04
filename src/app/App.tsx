@@ -35,6 +35,7 @@ import { NotificationsPage } from './components/pages/NotificationsPage';
 import { AuditLogsPage } from './components/pages/AuditLogsPage';
 import { SettingsPage } from './components/pages/SettingsPage';
 import { TaxSettingsPage } from './components/pages/TaxSettingsPage';
+import { BannersPage } from './components/pages/BannersPage';
 
 export default function App() {
   return (
@@ -56,6 +57,7 @@ export default function App() {
                     <Route path="reviews" element={<CustomerReviewsPage />} />
                     <Route path="categories" element={<CategoriesPage />} />
                     <Route path="collections" element={<CollectionsPage />} />
+                    <Route path="banners" element={<BannersPage />} />
                     <Route path="vendors" element={<VendorsPage />} />
                     <Route path="tailors-list" element={<TailorsPage />} />
                     <Route path="tailor-orders" element={<TailorOrdersPage />} />

@@ -57,6 +57,7 @@ const navItems: NavItem[] = [
       { id: 'reviews', label: 'Customer Reviews', icon: Star },
       { id: 'categories', label: 'Categories', icon: FolderTree },
       { id: 'collections', label: 'Collections', icon: Grid3x3 },
+      { id: 'banners', label: 'Banners', icon: ImageIcon },
       { id: 'vendors', label: 'Vendors', icon: Store },
     ],
   },

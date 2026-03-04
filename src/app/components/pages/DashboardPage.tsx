@@ -1,55 +1,78 @@
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  ShoppingCart, 
-  Users, 
+import { useState, useEffect } from 'react';
+import {
+  TrendingUp,
+  TrendingDown,
+  ShoppingCart,
+  Users,
   Scissors,
   UserCircle,
   Package,
   Truck,
   CheckCircle,
-  Clock
+  Clock,
 } from 'lucide-react';
+import { dashboardService } from '../../api/services/dashboardService';
+import type { DashboardOverviewResponse } from '../../api/types/dashboard';
+
+const OVERVIEW_KEYS: (keyof DashboardOverviewResponse)[] = [
+  'eCommerceCustomers',
+  'tailorCustomers',
+  'activeTailors',
+  'eCommerceOrders',
+];
+
+const CARD_META = [
+  { icon: Users, color: 'bg-blue-500' },
+  { icon: UserCircle, color: 'bg-purple-500' },
+  { icon: Scissors, color: 'bg-green-500' },
+  { icon: ShoppingCart, color: 'bg-orange-500' },
+] as const;
+
+function formatChange(changePercent: number): string {
+  const sign = changePercent >= 0 ? '+' : '';
+  return `${sign}${Number(changePercent).toFixed(1)}%`;
+}
 
 export function DashboardPage() {
-  const stats = [
-    {
-      label: 'E-commerce Customers',
-      value: '1,842',
-      change: '+15.3%',
-      trend: 'up',
-      icon: Users,
-      color: 'bg-blue-500',
-      description: 'Total online customers',
-    },
-    {
-      label: 'Tailor Customers',
-      value: '567',
-      change: '+22.8%',
-      trend: 'up',
-      icon: UserCircle,
-      color: 'bg-purple-500',
-      description: 'Custom tailoring clients',
-    },
-    {
-      label: 'Active Tailors',
-      value: '24',
-      change: '+12.5%',
-      trend: 'up',
-      icon: Scissors,
-      color: 'bg-green-500',
-      description: 'Tailors on the team',
-    },
-    {
-      label: 'E-commerce Orders',
-      value: '3,456',
-      change: '+18.2%',
-      trend: 'up',
-      icon: ShoppingCart,
-      color: 'bg-orange-500',
-      description: 'Total online orders',
-    },
-  ];
+  const [overview, setOverview] = useState<DashboardOverviewResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    dashboardService
+      .getOverview()
+      .then(setOverview)
+      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load dashboard'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const stats = overview
+    ? OVERVIEW_KEYS.map((key, index) => {
+        const m = overview[key];
+        const meta = CARD_META[index];
+        const value = typeof m.value === 'number' ? m.value.toLocaleString('en-IN') : String(m.value ?? 0);
+        const changePercent = typeof m.changePercent === 'number' ? m.changePercent : 0;
+        return {
+          label: m.label ?? '',
+          value,
+          change: formatChange(changePercent),
+          trend: changePercent >= 0 ? ('up' as const) : ('down' as const),
+          icon: meta.icon,
+          color: meta.color,
+          description: m.description ?? '',
+        };
+      })
+    : CARD_META.map((meta, i) => ({
+        label: ['E-commerce Customers', 'Tailor Customers', 'Active Tailors', 'E-commerce Orders'][i],
+        value: '—',
+        change: '—',
+        trend: 'up' as const,
+        icon: meta.icon,
+        color: meta.color,
+        description: ['Total online customers', 'Custom tailoring clients', 'Tailors on the team', 'Total online orders'][i],
+      }));
 
   const tailorGrowthData = [
     { month: 'Jan', tailors: 18, orders: 145 },
@@ -158,6 +181,11 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-4 py-3 text-red-800 dark:text-red-200">
+          {error}
+        </div>
+      )}
       <div>
         <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">Dashboard Overview</h2>
         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Welcome back! Here's what's happening with Wevraa.</p>
@@ -165,7 +193,20 @@ export function DashboardPage() {
 
       {/* Main Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat) => (
+        {loading && !overview ? (
+          [...Array(4)].map((_, i) => (
+            <div key={i} className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 animate-pulse">
+              <div className="flex items-center justify-between mb-4">
+                <div className="bg-gray-200 dark:bg-gray-700 h-12 w-12 rounded-lg" />
+                <div className="h-5 w-16 bg-gray-200 dark:bg-gray-700 rounded" />
+              </div>
+              <div className="h-4 w-32 bg-gray-200 dark:bg-gray-700 rounded mb-2" />
+              <div className="h-8 w-20 bg-gray-200 dark:bg-gray-700 rounded" />
+              <div className="h-3 w-24 bg-gray-200 dark:bg-gray-700 rounded mt-2" />
+            </div>
+          ))
+        ) : (
+        stats.map((stat) => (
           <div key={stat.label} className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 hover:shadow-lg transition-shadow">
             <div className="flex items-center justify-between mb-4">
               <div className={`${stat.color} p-3 rounded-lg`}>
@@ -184,7 +225,8 @@ export function DashboardPage() {
               <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">{stat.description}</p>
             </div>
           </div>
-        ))}
+        ))
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

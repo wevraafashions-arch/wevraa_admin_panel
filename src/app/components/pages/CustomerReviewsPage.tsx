@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Star, Trash2, Edit2, Search, X, Upload, User } from 'lucide-react';
 import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
-import { reviewsService } from '@/app/api/services/reviewsService';
-import { customerService } from '@/app/api/services/customerService';
-import { productsService } from '@/app/api/services/productsService';
-import type { ApiReview, ReviewStats } from '@/app/api/types/review';
-import type { ApiCustomer } from '@/app/api/types/customer';
-import type { Product } from '@/app/api/types/product';
+import { reviewsService } from '../../api/services/reviewsService';
+import { customerService } from '../../api/services/customerService';
+import { productsService } from '../../api/services/productsService';
+import type { ApiReview, ReviewStats } from '../../api/types/review';
+import type { ApiCustomer } from '../../api/types/customer';
+import type { Product } from '../../api/types/product';
 
 type ReviewStatus = 'Published' | 'Pending' | 'Hidden';
 const API_STATUS_TO_UI: Record<string, ReviewStatus> = {
@@ -51,7 +51,7 @@ export function CustomerReviewsPage() {
     try {
       const data = await reviewsService.getStats();
       setStats(data);
-    } catch {
+    } catch (_e) {
       setStats(null);
     }
   }, []);
@@ -61,17 +61,19 @@ export function CustomerReviewsPage() {
     setError(null);
     try {
       const statusParam = filterStatus === 'All' ? undefined : (UI_STATUS_TO_API[filterStatus] as 'PUBLISHED' | 'PENDING' | 'HIDDEN');
-      const { items, total: t } = await reviewsService.getList({
+      const result = await reviewsService.getList({
         status: statusParam,
         search: searchQuery || undefined,
         page,
         limit,
       });
+      const items = Array.isArray(result?.items) ? result.items : [];
       setReviews(items);
-      setTotal(t ?? items.length);
+      setTotal(result?.total ?? items.length);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load reviews');
       setReviews([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
@@ -238,8 +240,21 @@ export function CustomerReviewsPage() {
     </div>
   );
 
-  const dist = stats?.ratingDistribution ?? {};
-  const ratingDistribution = [dist[5] ?? 0, dist[4] ?? 0, dist[3] ?? 0, dist[2] ?? 0, dist[1] ?? 0];
+  // API may return ratingDistribution as { 5: number, 4: number, ... } or { 5: { stars, count }, ... } or array of { stars, count }
+  const rawDist = stats?.ratingDistribution;
+  const toCount = (v: unknown): number => {
+    if (typeof v === 'number' && !Number.isNaN(v)) return v;
+    if (v && typeof v === 'object' && 'count' in v && typeof (v as { count: number }).count === 'number') return (v as { count: number }).count;
+    return 0;
+  };
+  const ratingDistribution: number[] = Array.isArray(rawDist)
+    ? [5, 4, 3, 2, 1].map((stars) => {
+        const item = rawDist.find((x: unknown) => x && typeof x === 'object' && (x as { stars?: number }).stars === stars);
+        return toCount(item);
+      })
+    : rawDist && typeof rawDist === 'object' && !Array.isArray(rawDist)
+      ? [toCount((rawDist as Record<number, unknown>)[5]), toCount((rawDist as Record<number, unknown>)[4]), toCount((rawDist as Record<number, unknown>)[3]), toCount((rawDist as Record<number, unknown>)[2]), toCount((rawDist as Record<number, unknown>)[1])]
+      : [0, 0, 0, 0, 0];
   const publishedCount = stats?.published ?? 0;
 
   return (
@@ -295,7 +310,7 @@ export function CustomerReviewsPage() {
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Rating Distribution</h3>
         <div className="space-y-2">
           {[5, 4, 3, 2, 1].map((rating, index) => {
-            const count = ratingDistribution[index];
+            const count = typeof ratingDistribution[index] === 'number' ? ratingDistribution[index] : 0;
             const percentage = publishedCount > 0 ? (count / publishedCount) * 100 : 0;
             return (
               <div key={rating} className="flex items-center gap-3">
@@ -356,8 +371,8 @@ export function CustomerReviewsPage() {
         <div className="space-y-4">
           {reviews.map((review) => {
             const statusUi = API_STATUS_TO_UI[review.status] ?? review.status;
-            const customerName = review.customerName ?? `Customer ${review.customerId.slice(0, 8)}`;
-            const productName = review.productName ?? `Product ${review.productId.slice(0, 8)}`;
+            const customerName = review.customerName ?? (review.customerId ? `Customer ${String(review.customerId).slice(0, 8)}` : 'Customer');
+            const productName = review.productName ?? (review.productId ? `Product ${String(review.productId).slice(0, 8)}` : 'Product');
             return (
               <div key={review.id} className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 hover:shadow-md transition-shadow border border-gray-200 dark:border-gray-700">
                 <div className="flex items-start gap-4">
