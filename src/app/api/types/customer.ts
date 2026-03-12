@@ -36,3 +36,11 @@ export interface CreateCustomerRequest {
 
 /** Request body for PATCH /customers/:id (partial) */
 export type UpdateCustomerRequest = Partial<CreateCustomerRequest>;
+
+/** Overview metrics from GET /customers/overview */
+export interface CustomerOverview {
+  totalCustomers: number;
+  vipCustomers: number;
+  activeCustomers: number;
+  newCustomers: number;
+}

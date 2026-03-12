@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Search, Mail, Phone, Edit, Trash2, X, Eye, ShoppingBag, IndianRupee } from 'lucide-react';
 import { customerService } from '../../api/services/customerService';
-import type { ApiCustomer } from '../../api/types/customer';
+import type { ApiCustomer, CustomerOverview } from '../../api/types/customer';
 import type { CreateCustomerRequest, UpdateCustomerRequest } from '../../api/types/customer';
 import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
 
@@ -69,6 +69,8 @@ export function CustomersPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingDeleteCustomerId, setPendingDeleteCustomerId] = useState<string | null>(null);
 
+  const [overview, setOverview] = useState<CustomerOverview | null>(null);
+
   const [customerForm, setCustomerForm] = useState({
     name: '',
     email: '',
@@ -100,6 +102,15 @@ export function CustomersPage() {
   useEffect(() => {
     fetchCustomers();
   }, [fetchCustomers]);
+
+  useEffect(() => {
+    customerService
+      .getOverview()
+      .then(setOverview)
+      .catch(() => {
+        // Ignore overview errors; fall back to derived counts from list
+      });
+  }, []);
 
   const filteredCustomers = customers.filter(
     (customer) =>
@@ -209,9 +220,14 @@ export function CustomersPage() {
     setShowDetailsModal(true);
   };
 
-  const vipCustomers = customers.filter(c => c.status === 'VIP').length;
-  const activeCustomers = customers.filter(c => c.status === 'Active').length;
-  const newCustomers = customers.filter(c => c.status === 'New').length;
+  const derivedVip = customers.filter(c => c.status === 'VIP').length;
+  const derivedActive = customers.filter(c => c.status === 'Active').length;
+  const derivedNew = customers.filter(c => c.status === 'New').length;
+
+  const totalCustomers = overview?.totalCustomers ?? customers.length;
+  const vipCustomers = overview?.vipCustomers ?? derivedVip;
+  const activeCustomers = overview?.activeCustomers ?? derivedActive;
+  const newCustomers = overview?.newCustomers ?? derivedNew;
 
   return (
     <div className="space-y-6">

@@ -3,6 +3,7 @@ import type {
   ApiCustomer,
   CreateCustomerRequest,
   UpdateCustomerRequest,
+  CustomerOverview,
 } from '../types/customer';
 
 const CUSTOMERS_PATH = '/customers';
@@ -10,6 +11,10 @@ const CUSTOMERS_PATH = '/customers';
 export const customerService = {
   async getList(): Promise<ApiCustomer[]> {
     return apiClient<ApiCustomer[]>(CUSTOMERS_PATH, { method: 'GET' });
+  },
+
+  async getOverview(): Promise<CustomerOverview> {
+    return apiClient<CustomerOverview>(`${CUSTOMERS_PATH}/overview`, { method: 'GET' });
   },
 
   async create(body: CreateCustomerRequest): Promise<ApiCustomer> {
