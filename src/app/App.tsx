@@ -28,6 +28,7 @@ import { StaffsPage } from './components/pages/StaffsPage';
 import { MeasurementsPage } from './components/pages/MeasurementsPage';
 import { DesignGalleryPage } from './components/pages/DesignGalleryPage';
 import { AddOnsPage } from './components/pages/AddOnsPage';
+import { AddonAccessoryOptionsPage } from './components/pages/AddonAccessoryOptionsPage';
 import { InvoicesPage } from './components/pages/InvoicesPage';
 import { UsersPage } from './components/pages/UsersPage';
 import { LocationsPage } from './components/pages/LocationsPage';
@@ -71,6 +72,7 @@ export default function App() {
                     <Route path="measurements" element={<MeasurementsPage />} />
                     <Route path="design-gallery" element={<DesignGalleryPage />} />
                     <Route path="add-ons" element={<AddOnsPage />} />
+                    <Route path="add-on-accessories" element={<AddonAccessoryOptionsPage />} />
                     <Route path="invoices" element={<InvoicesPage />} />
                     <Route path="users" element={<UsersPage />} />
                     <Route path="locations" element={<LocationsPage />} />

@@ -8,6 +8,7 @@ import type {
   CreateAddonConfigurationRequest,
   ListAddonConfigurationsParams,
   UpdateAddonConfigurationRequest,
+  UpdateAccessorySubOptionRequest,
 } from '../types/addon';
 
 const ADDON_PATH = '/addon';
@@ -55,6 +56,11 @@ export const addonService = {
     return apiClient<AccessoryOption[]>(`${ADDON_PATH}/accessory-options`, { method: 'GET' });
   },
 
+  /** GET /addon/accessory-options/:id */
+  async getAccessoryOptionById(id: string): Promise<AccessoryOption> {
+    return apiClient<AccessoryOption>(`${ADDON_PATH}/accessory-options/${id}`, { method: 'GET' });
+  },
+
   async createAccessoryOption(body: CreateAccessoryOptionRequest): Promise<AccessoryOption> {
     return apiClient<AccessoryOption>(`${ADDON_PATH}/accessory-options`, {
       method: 'POST',
@@ -76,10 +82,7 @@ export const addonService = {
     });
   },
 
-  async updateAccessorySubOption(
-    id: string,
-    body: Partial<Pick<CreateAccessorySubOptionRequest, 'name' | 'sortOrder'>>
-  ): Promise<AccessorySubOption> {
+  async updateAccessorySubOption(id: string, body: UpdateAccessorySubOptionRequest): Promise<AccessorySubOption> {
     return apiClient<AccessorySubOption>(`${ADDON_PATH}/accessory-sub-options/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(body),

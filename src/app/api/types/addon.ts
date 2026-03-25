@@ -57,6 +57,11 @@ export interface CreateAccessorySubOptionRequest {
   sortOrder?: number;
 }
 
+/** PATCH /addon/accessory-sub-options/:id */
+export type UpdateAccessorySubOptionRequest = Partial<
+  Pick<CreateAccessorySubOptionRequest, 'name' | 'sortOrder'>
+>;
+
 export interface ListAddonConfigurationsParams {
   categoryId?: string;
   status?: 'ACTIVE' | 'INACTIVE';

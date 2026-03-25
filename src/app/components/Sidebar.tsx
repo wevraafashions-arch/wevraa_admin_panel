@@ -30,6 +30,7 @@ import {
   ImageIcon,
   Store,
   Percent,
+  Layers,
 } from 'lucide-react';
 
 interface NavItem {
@@ -78,6 +79,7 @@ const navItems: NavItem[] = [
       { id: 'measurements', label: 'Measurements', icon: Ruler },
       { id: 'design-gallery', label: 'Design Gallery', icon: Image },
       { id: 'add-ons', label: 'Add-Ons', icon: Package },
+      { id: 'add-on-accessories', label: 'Add-On accessories', icon: Layers },
       { id: 'tax-settings', label: 'Tax Settings', icon: Percent },
     ],
   },
