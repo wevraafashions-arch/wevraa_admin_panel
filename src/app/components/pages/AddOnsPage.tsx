@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, Edit, Trash2, Image as ImageIcon, Tag, Package } from 'lucide-react';
+import { Plus, Edit, Trash2, Eye, Image as ImageIcon, Tag, Package } from 'lucide-react';
 import { useTailorCategories } from '@/contexts/TailorCategoriesContext';
+import { AddonConfigurationDetailDialog } from '../AddonConfigurationDetailDialog';
 import { AddOnModal } from '../AddOnModal';
 import { DesignGalleryModal } from '../DesignGalleryModal';
 import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
@@ -210,6 +211,11 @@ export function AddOnsPage() {
   const [pendingDeleteConfigId, setPendingDeleteConfigId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailConfig, setDetailConfig] = useState<AddonConfiguration | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+
   const loadConfigs = useCallback(async () => {
     setConfigsLoading(true);
     setConfigsError(null);
@@ -276,6 +282,30 @@ export function AddOnsPage() {
     const active = configs.filter((c) => (c.status || '').toUpperCase() === 'ACTIVE').length;
     return { total, active };
   }, [configs]);
+
+  const handleViewDetails = async (config: AddonConfiguration) => {
+    setDetailOpen(true);
+    setDetailConfig(null);
+    setDetailError(null);
+    setDetailLoading(true);
+    try {
+      const full = await addonService.getConfigurationById(config.id);
+      setDetailConfig(full);
+    } catch (e) {
+      setDetailError(e instanceof Error ? e.message : 'Failed to load configuration');
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const handleDetailOpenChange = (open: boolean) => {
+    setDetailOpen(open);
+    if (!open) {
+      setDetailConfig(null);
+      setDetailError(null);
+      setDetailLoading(false);
+    }
+  };
 
   const handleEdit = async (config: AddonConfiguration) => {
     setConfigsError(null);
@@ -516,9 +546,20 @@ export function AddOnsPage() {
                         <div className="flex items-center gap-3">
                           <button
                             type="button"
+                            onClick={() => handleViewDetails(cfg)}
+                            disabled={saving || configsLoading}
+                            className="text-gray-700 hover:text-gray-900 disabled:opacity-50"
+                            title="View details"
+                            aria-label="View configuration details"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleEdit(cfg)}
                             disabled={saving}
                             className="text-blue-600 hover:text-blue-900 disabled:opacity-50"
+                            title="Edit"
                           >
                             <Edit className="w-4 h-4" />
                           </button>
@@ -562,6 +603,20 @@ export function AddOnsPage() {
           </button>
         </div>
       )}
+
+      <AddonConfigurationDetailDialog
+        open={detailOpen}
+        onOpenChange={handleDetailOpenChange}
+        config={detailConfig}
+        loading={detailLoading}
+        error={detailError}
+        categoryLabel={detailConfig ? getCategoryName(detailConfig.categoryId) : '—'}
+        subCategoryLabel={
+          detailConfig ? getSubName(detailConfig.categoryId, detailConfig.subCategoryId) : '—'
+        }
+        accessoryOptions={accessoryOptions}
+        optionIdToSubOptions={optionIdToSubOptions}
+      />
 
       <AddOnModal
         isOpen={isAddModalOpen}
