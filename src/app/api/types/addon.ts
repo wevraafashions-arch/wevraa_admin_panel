@@ -31,6 +31,9 @@ export interface AddonConfiguration extends CreateAddonConfigurationRequest {
   updatedAt?: string;
 }
 
+/** Modal / form state: per accessory option id */
+export type AccessorySelectionState = Record<string, { enabled: boolean; isRequired: boolean }>;
+
 export interface AccessorySubOption {
   id: string;
   accessoryOptionId: string;

@@ -8,24 +8,18 @@ import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
 import { addonService } from '@/app/api/services/addonService';
 import type {
   AccessoryOption,
+  AccessorySelectionState,
   AccessorySubOption,
   AddonConfiguration,
   AddonConfigurationAccessory,
   CreateAddonConfigurationRequest,
 } from '@/app/api/types/addon';
 
-type ModalAccessoryKey = 'cups' | 'piping' | 'zipType' | 'hooks';
-
-const ACCESSORY_KEY_HINTS: Record<ModalAccessoryKey, string[]> = {
-  cups: ['cup'],
-  piping: ['pip'],
-  zipType: ['zip'],
-  hooks: ['hook'],
-};
-
-function findAccessoryOption(options: AccessoryOption[], key: ModalAccessoryKey): AccessoryOption | undefined {
-  const hints = ACCESSORY_KEY_HINTS[key];
-  return options.find((o) => hints.some((h) => o.name.toLowerCase().includes(h)));
+function subsForOption(
+  opt: AccessoryOption,
+  optionIdToSubOptions: Record<string, AccessorySubOption[]>
+): AccessorySubOption[] {
+  return optionIdToSubOptions[opt.id] ?? opt.subOptions ?? [];
 }
 
 function modalDataToCreatePayload(
@@ -38,37 +32,24 @@ function modalDataToCreatePayload(
   forUpdate = false
 ): CreateAddonConfigurationRequest {
   const status: 'ACTIVE' | 'INACTIVE' = data.status === 'Active' ? 'ACTIVE' : 'INACTIVE';
+  const selection = (data.accessorySelection as AccessorySelectionState | undefined) ?? {};
   const accessories: AddonConfigurationAccessory[] = [];
-  const requiredFields = (data.requiredFields as Record<string, boolean> | undefined) ?? {};
-  for (const key of Object.keys(ACCESSORY_KEY_HINTS) as ModalAccessoryKey[]) {
-    if (!data[key]) continue;
-    const opt = findAccessoryOption(accessoryOptions, key);
-    if (!opt) continue;
-    accessories.push({
-      accessoryOptionId: opt.id,
-      isRequired: !!requiredFields[key],
-    });
-  }
-
-  const selectedSubOptionIds: string[] = [];
-  const subNameBuckets = {
-    cups: (data.cupsSubOptions as string[]) ?? [],
-    piping: (data.pipingSubOptions as string[]) ?? [],
-    zipType: (data.zipTypeSubOptions as string[]) ?? [],
-    hooks: (data.hooksSubOptions as string[]) ?? [],
-  } as Record<ModalAccessoryKey, string[]>;
-
-  for (const key of Object.keys(ACCESSORY_KEY_HINTS) as ModalAccessoryKey[]) {
-    const opt = findAccessoryOption(accessoryOptions, key);
-    if (!opt) continue;
-    const subs = optionIdToSubOptions[opt.id] ?? opt.subOptions ?? [];
-    for (const n of subNameBuckets[key]) {
-      const sub = subs.find(
-        (s) => s.name.toLowerCase() === n.toLowerCase() || s.name.toLowerCase().includes(n.toLowerCase())
-      );
-      if (sub) selectedSubOptionIds.push(sub.id);
+  for (const [optId, s] of Object.entries(selection)) {
+    if (s?.enabled) {
+      accessories.push({ accessoryOptionId: optId, isRequired: !!s.isRequired });
     }
   }
+
+  const enabledOptIds = new Set(accessories.map((a) => a.accessoryOptionId));
+  const rawSubIds = (data.selectedSubOptionIds as string[] | undefined) ?? [];
+  const selectedSubOptionIds = rawSubIds.filter((subId) => {
+    for (const optId of enabledOptIds) {
+      const opt = accessoryOptions.find((o) => o.id === optId);
+      if (!opt) continue;
+      if (subsForOption(opt, optionIdToSubOptions).some((x) => x.id === subId)) return true;
+    }
+    return false;
+  });
 
   const fabricImage = data.fabricImage as string | null | undefined;
   const drawingImage = data.drawingImage as string | null | undefined;
@@ -107,63 +88,25 @@ function mapApiConfigToModalEditShape(
   optionIdToSubOptions: Record<string, AccessorySubOption[]>
 ): Record<string, unknown> {
   const status = config.status === 'ACTIVE' ? 'Active' : 'Inactive';
-  const accessoriesState = { cups: false, piping: false, zipType: false, hooks: false };
+  const accessorySelection: AccessorySelectionState = {};
+  for (const a of config.accessories ?? []) {
+    accessorySelection[a.accessoryOptionId] = {
+      enabled: true,
+      isRequired: !!a.isRequired,
+    };
+  }
+  for (const o of accessoryOptions) {
+    if (!(o.id in accessorySelection)) {
+      accessorySelection[o.id] = { enabled: false, isRequired: false };
+    }
+  }
+
   const requiredFields = {
     fabricImage: true,
     designImages: true,
     drawingImage: false,
-    cups: false,
-    piping: false,
-    zipType: false,
-    hooks: false,
     hangings: false,
   };
-  const cupsSubOptions: string[] = [];
-  const pipingSubOptions: string[] = [];
-  const zipTypeSubOptions: string[] = [];
-  const hooksSubOptions: string[] = [];
-
-  const accList = config.accessories ?? [];
-  for (const a of accList) {
-    const opt = accessoryOptions.find((o) => o.id === a.accessoryOptionId);
-    if (!opt) continue;
-    const key = (Object.keys(ACCESSORY_KEY_HINTS) as ModalAccessoryKey[]).find((k) =>
-      ACCESSORY_KEY_HINTS[k].some((h) => opt.name.toLowerCase().includes(h))
-    );
-    if (!key) continue;
-    accessoriesState[key] = true;
-    (requiredFields as Record<string, boolean>)[key] = a.isRequired;
-  }
-
-  const addSubNamesForKey = (key: ModalAccessoryKey, ids: string[]) => {
-    const opt = findAccessoryOption(accessoryOptions, key);
-    if (!opt) return;
-    const subs = optionIdToSubOptions[opt.id] ?? [];
-    const bucket =
-      key === 'cups'
-        ? cupsSubOptions
-        : key === 'piping'
-          ? pipingSubOptions
-          : key === 'zipType'
-            ? zipTypeSubOptions
-            : hooksSubOptions;
-    for (const id of ids) {
-      const s = subs.find((x) => x.id === id);
-      if (s) bucket.push(s.name);
-    }
-  };
-
-  for (const id of config.selectedSubOptionIds ?? []) {
-    for (const key of Object.keys(ACCESSORY_KEY_HINTS) as ModalAccessoryKey[]) {
-      const opt = findAccessoryOption(accessoryOptions, key);
-      if (!opt) continue;
-      const subs = optionIdToSubOptions[opt.id] ?? [];
-      if (subs.some((s) => s.id === id)) {
-        addSubNamesForKey(key, [id]);
-        break;
-      }
-    }
-  }
 
   return {
     id: config.id,
@@ -176,14 +119,8 @@ function mapApiConfigToModalEditShape(
     drawingImage: config.drawingImageUrl ?? null,
     hangings: config.hangingImageUrls ?? [],
     requiredFields,
-    cups: accessoriesState.cups,
-    piping: accessoriesState.piping,
-    zipType: accessoriesState.zipType,
-    hooks: accessoriesState.hooks,
-    cupsSubOptions,
-    pipingSubOptions,
-    zipTypeSubOptions,
-    hooksSubOptions,
+    accessorySelection,
+    selectedSubOptionIds: [...(config.selectedSubOptionIds ?? [])],
   };
 }
 
@@ -623,6 +560,8 @@ export function AddOnsPage() {
         onClose={handleCloseModal}
         onSave={handleSaveAddOn}
         editingAddOn={editingAddOn}
+        accessoryOptions={accessoryOptions}
+        optionIdToSubOptions={optionIdToSubOptions}
         onOpenGallery={(callback) => {
           setGalleryCallback(() => callback);
           setIsGalleryModalOpen(true);
