@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { X, Upload, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { useTailorCategories } from '@/contexts/TailorCategoriesContext';
 
 interface AddOnModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (addOn: any) => void;
+  onSave: (addOn: any) => void | Promise<void>;
   onOpenGallery: (callback: (images: string[]) => void) => void;
   editingAddOn?: any | null;
 }
@@ -58,8 +58,11 @@ export function AddOnModal({ isOpen, onClose, onSave, onOpenGallery, editingAddO
     hooks: ['Front Hooks', 'Back Hooks', 'Side Hooks', 'Hidden Hooks', 'Designer Hooks'],
   };
 
-  const { getActiveCategories, subCategoriesData, loadSubCategories } = useTailorCategories();
-  const categories = getActiveCategories();
+  const { categories: allCategories, subCategoriesData, loadSubCategories } = useTailorCategories();
+  const categories = useMemo(
+    () => allCategories.filter((cat) => cat.status === 'Active'),
+    [allCategories]
+  );
 
   const getCategoryIdByName = (name: string): string | undefined => {
     return categories.find(cat => cat.name === name)?.id;
@@ -73,10 +76,10 @@ export function AddOnModal({ isOpen, onClose, onSave, onOpenGallery, editingAddO
   };
 
   useEffect(() => {
-    if (!formData.category) return;
-    const cat = categories.find(c => c.name === formData.category);
-    if (cat) loadSubCategories(cat.id);
-  }, [formData.category, categories, loadSubCategories]);
+    if (!isOpen || !formData.category) return;
+    const cat = categories.find((c) => c.name === formData.category);
+    if (cat) void loadSubCategories(cat.id);
+  }, [isOpen, formData.category, categories, loadSubCategories]);
 
   // Pre-fill form when editing
   useEffect(() => {
@@ -143,7 +146,7 @@ export function AddOnModal({ isOpen, onClose, onSave, onOpenGallery, editingAddO
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const addOnData = {
       ...formData,
@@ -159,8 +162,7 @@ export function AddOnModal({ isOpen, onClose, onSave, onOpenGallery, editingAddO
       zipTypeSubOptions: accessorySubOptions.zipType,
       hooksSubOptions: accessorySubOptions.hooks,
     };
-    onSave(addOnData);
-    onClose();
+    await Promise.resolve(onSave(addOnData));
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'fabric' | 'drawing') => {
