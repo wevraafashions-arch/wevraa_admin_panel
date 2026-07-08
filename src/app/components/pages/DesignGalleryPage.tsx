@@ -35,9 +35,16 @@ export function DesignGalleryPage() {
   const [formDesign, setFormDesign] = useState({
     designName: '',
     description: '',
+    tags: '',
     categoryId: '',
     subcategoryId: '',
   });
+
+  const parseTags = (tags: string): string[] =>
+    tags
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
 
   const loadCategories = async () => {
     try {
@@ -139,6 +146,7 @@ export function DesignGalleryPage() {
     fd.append('description', formDesign.description);
     fd.append('categoryId', formDesign.categoryId);
     fd.append('subcategoryId', formDesign.subcategoryId);
+    if (formDesign.tags.trim()) fd.append('tags', formDesign.tags.trim());
     return fd;
   };
 
@@ -180,6 +188,7 @@ export function DesignGalleryPage() {
           description: formDesign.description || undefined,
           categoryId: formDesign.categoryId,
           subcategoryId: formDesign.subcategoryId,
+          tags: parseTags(formDesign.tags),
         });
       }
       await loadDesigns();
@@ -197,6 +206,7 @@ export function DesignGalleryPage() {
     setFormDesign({
       designName: design.designName,
       description: design.description || '',
+      tags: (design.tags ?? []).join(', '),
       categoryId: design.categoryId,
       subcategoryId: design.subcategoryId,
     });
@@ -214,6 +224,7 @@ export function DesignGalleryPage() {
         categoryId: design.categoryId,
         subcategoryId: design.subcategoryId,
         imageUrl: design.imageUrl,
+        tags: design.tags?.length ? design.tags : undefined,
       });
       await loadDesigns();
     } catch (e) {
@@ -245,7 +256,7 @@ export function DesignGalleryPage() {
     setShowAddModal(false);
     setIsEditMode(false);
     setEditingDesignId(null);
-    setFormDesign({ designName: '', description: '', categoryId: '', subcategoryId: '' });
+    setFormDesign({ designName: '', description: '', tags: '', categoryId: '', subcategoryId: '' });
     setImageFile(null);
     setImagePreview('');
   };
@@ -257,7 +268,8 @@ export function DesignGalleryPage() {
     const desc = (d.description || '').toLowerCase();
     const cat = (d.category?.name ?? '').toLowerCase();
     const sub = (d.subcategory?.name ?? '').toLowerCase();
-    return name.includes(q) || desc.includes(q) || cat.includes(q) || sub.includes(q);
+    const tagsStr = (d.tags ?? []).join(' ').toLowerCase();
+    return name.includes(q) || desc.includes(q) || cat.includes(q) || sub.includes(q) || tagsStr.includes(q);
   });
 
   return (
@@ -285,7 +297,7 @@ export function DesignGalleryPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" />
             <input
               type="text"
-              placeholder="Search by name, category, or subcategory..."
+              placeholder="Search by name, category, subcategory, or tags..."
               className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -451,6 +463,17 @@ export function DesignGalleryPage() {
                   placeholder="Describe the design details, fabric, embellishments, etc."
                   rows={3}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tags (comma separated)</label>
+                <input
+                  type="text"
+                  value={formDesign.tags}
+                  onChange={(e) => setFormDesign({ ...formDesign, tags: e.target.value })}
+                  placeholder="Wedding, Silk, Embroidery"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                 />
               </div>
 

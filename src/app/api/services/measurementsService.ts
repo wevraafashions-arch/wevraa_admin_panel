@@ -7,15 +7,19 @@ import type {
 
 const MEASUREMENTS_PATH = '/measurements';
 
-function buildListQuery(subcategoryId?: string | null): string {
-  if (!subcategoryId) return '';
-  return `?subcategoryId=${encodeURIComponent(subcategoryId)}`;
+function buildListQuery(params?: { subcategoryId?: string | null; presetId?: string | null }): string {
+  if (!params) return '';
+  const q = new URLSearchParams();
+  if (params.subcategoryId) q.set('subcategoryId', params.subcategoryId);
+  if (params.presetId) q.set('presetId', params.presetId);
+  const s = q.toString();
+  return s ? `?${s}` : '';
 }
 
 export const measurementsService = {
-  /** GET /measurements or GET /measurements?subcategoryId=<uuid> */
-  async getList(subcategoryId?: string | null): Promise<ApiMeasurement[]> {
-    const url = `${MEASUREMENTS_PATH}${buildListQuery(subcategoryId)}`;
+  /** GET /measurements?subcategoryId= or GET /measurements?presetId= */
+  async getList(params?: { subcategoryId?: string | null; presetId?: string | null }): Promise<ApiMeasurement[]> {
+    const url = `${MEASUREMENTS_PATH}${buildListQuery(params)}`;
     return apiClient<ApiMeasurement[]>(url, { method: 'GET' });
   },
 

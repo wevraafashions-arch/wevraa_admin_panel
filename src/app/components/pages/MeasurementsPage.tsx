@@ -2,9 +2,37 @@ import { useState, useEffect, useCallback } from 'react';
 import { Plus, Edit, Trash2, ArrowLeft, ChevronRight, Ruler, ToggleLeft, ToggleRight, X, Image as ImageIcon } from 'lucide-react';
 import { tailorCategoriesService } from '../../api/services/tailorCategoriesService';
 import { measurementsService } from '../../api/services/measurementsService';
+import { measurementPresetsService } from '../../api/services/measurementPresetsService';
 import type { ApiTailorCategory } from '../../api/types/tailorCategory';
 import type { ApiMeasurement } from '../../api/types/measurement';
+import type { ApiMeasurementPreset } from '../../api/types/measurementPreset';
 import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
+
+function sortMeasurements(items: ApiMeasurement[]): ApiMeasurement[] {
+  return [...items].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+}
+
+function sortPresets(items: ApiMeasurementPreset[]): ApiMeasurementPreset[] {
+  return [...items].sort((a, b) => {
+    const aIsDefault = a.label.toLowerCase() === 'default';
+    const bIsDefault = b.label.toLowerCase() === 'default';
+    if (aIsDefault !== bIsDefault) return aIsDefault ? -1 : 1;
+    return a.sortOrder - b.sortOrder;
+  });
+}
+
+function findDefaultPreset(items: ApiMeasurementPreset[]): ApiMeasurementPreset | undefined {
+  return items.find((p) => p.label.toLowerCase() === 'default');
+}
+
+function presetChipClasses(label: string, selected: boolean): string {
+  const compact = label.length <= 3;
+  const size = compact ? 'size-10 text-sm' : 'size-14 text-[11px] leading-none';
+  const state = selected
+    ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-600 text-blue-700 dark:text-blue-400'
+    : 'bg-white dark:bg-gray-800 border-gray-400 dark:border-gray-500 text-gray-900 dark:text-white hover:border-blue-400';
+  return `inline-flex items-center justify-center rounded-full border font-medium transition-colors shrink-0 ${size} ${state}`;
+}
 
 export function MeasurementsPage() {
   const [tree, setTree] = useState<ApiTailorCategory[]>([]);
@@ -14,9 +42,18 @@ export function MeasurementsPage() {
   const [selectedCategory, setSelectedCategory] = useState<ApiTailorCategory | null>(null);
   const [selectedSubCategory, setSelectedSubCategory] = useState<ApiTailorCategory | null>(null);
 
+  const [presets, setPresets] = useState<ApiMeasurementPreset[]>([]);
+  const [selectedPreset, setSelectedPreset] = useState<ApiMeasurementPreset | null>(null);
+  const [presetsLoading, setPresetsLoading] = useState(false);
+  const [presetsError, setPresetsError] = useState<string | null>(null);
+
   const [measurements, setMeasurements] = useState<ApiMeasurement[]>([]);
   const [measurementsLoading, setMeasurementsLoading] = useState(false);
   const [measurementsError, setMeasurementsError] = useState<string | null>(null);
+
+  const [showCreatePresetModal, setShowCreatePresetModal] = useState(false);
+  const [newPresetLabel, setNewPresetLabel] = useState('');
+  const [createPresetError, setCreatePresetError] = useState<string | null>(null);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -47,39 +84,112 @@ export function MeasurementsPage() {
       .finally(() => setTreeLoading(false));
   }, []);
 
-  const loadMeasurements = useCallback((subcategoryId: string) => {
+  const loadPresets = useCallback((subcategoryId: string, keepPresetId?: string | null) => {
+    setPresetsLoading(true);
     setMeasurementsLoading(true);
+    setPresetsError(null);
     setMeasurementsError(null);
-    measurementsService
-      .getList(subcategoryId)
-      .then(setMeasurements)
+    measurementPresetsService
+      .getList(subcategoryId, true)
+      .then((list) => {
+        const sorted = sortPresets(list);
+        setPresets(sorted);
+        const defaultPreset = findDefaultPreset(sorted);
+        const nextPreset = keepPresetId
+          ? sorted.find((p) => p.id === keepPresetId) ?? defaultPreset ?? sorted[0] ?? null
+          : defaultPreset ?? sorted[0] ?? null;
+        setSelectedPreset(nextPreset);
+        setMeasurements(nextPreset?.measurements ? sortMeasurements(nextPreset.measurements) : []);
+      })
       .catch((e) => {
-        setMeasurementsError(e instanceof Error ? e.message : 'Failed to load measurements');
+        const message = e instanceof Error ? e.message : 'Failed to load size presets';
+        setPresetsError(message);
+        setMeasurementsError(message);
+        setPresets([]);
+        setSelectedPreset(null);
         setMeasurements([]);
       })
-      .finally(() => setMeasurementsLoading(false));
+      .finally(() => {
+        setPresetsLoading(false);
+        setMeasurementsLoading(false);
+      });
   }, []);
 
   useEffect(() => {
-    if (selectedSubCategory?.id) loadMeasurements(selectedSubCategory.id);
-    else setMeasurements([]);
-  }, [selectedSubCategory?.id, loadMeasurements]);
+    if (selectedSubCategory?.id) loadPresets(selectedSubCategory.id);
+    else {
+      setPresets([]);
+      setSelectedPreset(null);
+      setMeasurements([]);
+    }
+  }, [selectedSubCategory?.id, loadPresets]);
+
+  const handleSelectPreset = (preset: ApiMeasurementPreset) => {
+    setSelectedPreset(preset);
+    setMeasurements(preset.measurements ? sortMeasurements(preset.measurements) : []);
+  };
+
+  const handleCreatePreset = async () => {
+    if (!selectedSubCategory || !newPresetLabel.trim()) return;
+    setSubmitting(true);
+    setCreatePresetError(null);
+    try {
+      const created = await measurementPresetsService.create({
+        subcategoryId: selectedSubCategory.id,
+        label: newPresetLabel.trim(),
+        sortOrder: presets.length,
+      });
+
+      const defaultPreset = findDefaultPreset(presets);
+      const defaultMeasurements = defaultPreset?.measurements
+        ? sortMeasurements(defaultPreset.measurements)
+        : [];
+
+      if (defaultMeasurements.length > 0) {
+        await measurementPresetsService.bulkSaveMeasurements(created.id, {
+          items: defaultMeasurements.map((m, index) => ({
+            name: m.name,
+            value: String(m.value),
+            unit: m.unit || 'inches',
+            status: m.status,
+            imageUrl: m.imageUrl ?? null,
+            sortOrder: m.sortOrder ?? index,
+          })),
+        });
+      }
+
+      setShowCreatePresetModal(false);
+      setNewPresetLabel('');
+      loadPresets(selectedSubCategory.id, created.id);
+    } catch (e) {
+      setCreatePresetError(e instanceof Error ? e.message : 'Failed to create size preset');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const reloadCurrentPreset = () => {
+    if (selectedSubCategory?.id) {
+      loadPresets(selectedSubCategory.id, selectedPreset?.id);
+    }
+  };
 
   const handleAddMeasurement = async () => {
-    if (!selectedSubCategory || !newMeasurement.name.trim()) return;
+    if (!selectedSubCategory || !selectedPreset || !newMeasurement.name.trim()) return;
     const valueNum = Number(newMeasurement.value);
     if (Number.isNaN(valueNum)) return;
     setSubmitting(true);
     try {
       await measurementsService.create({
         subcategoryId: selectedSubCategory.id,
+        presetId: selectedPreset.id,
         name: newMeasurement.name.trim(),
         value: valueNum,
         unit: newMeasurement.unit || 'inches',
         status: newMeasurement.status,
         imageUrl: newMeasurement.imageUrl.trim() || undefined,
       });
-      loadMeasurements(selectedSubCategory.id);
+      reloadCurrentPreset();
       setShowAddModal(false);
       setNewMeasurement({ name: '', value: '', unit: 'inches', status: 'ENABLED', imageUrl: '' });
     } catch (e) {
@@ -90,7 +200,8 @@ export function MeasurementsPage() {
   };
 
   const handleEditMeasurement = async () => {
-    if (!editingMeasurement || !newMeasurement.name.trim()) return;
+    if (!editingMeasurement || !selectedPreset || !newMeasurement.name.trim()) return;
+    if (editingMeasurement.presetId && editingMeasurement.presetId !== selectedPreset.id) return;
     const valueNum = Number(newMeasurement.value);
     if (Number.isNaN(valueNum)) return;
     setSubmitting(true);
@@ -102,7 +213,7 @@ export function MeasurementsPage() {
         status: newMeasurement.status,
         imageUrl: newMeasurement.imageUrl.trim() || undefined,
       });
-      if (selectedSubCategory) loadMeasurements(selectedSubCategory.id);
+      if (selectedSubCategory) reloadCurrentPreset();
       setShowEditModal(false);
       setEditingMeasurement(null);
       setNewMeasurement({ name: '', value: '', unit: 'inches', status: 'ENABLED', imageUrl: '' });
@@ -118,7 +229,7 @@ export function MeasurementsPage() {
     setSubmitting(true);
     try {
       await measurementsService.update(m.id, { status: nextStatus });
-      if (selectedSubCategory) loadMeasurements(selectedSubCategory.id);
+      if (selectedSubCategory) reloadCurrentPreset();
     } catch (e) {
       setMeasurementsError(e instanceof Error ? e.message : 'Failed to update status');
     } finally {
@@ -138,7 +249,7 @@ export function MeasurementsPage() {
       await measurementsService.delete(pendingDeleteId);
       setDeleteDialogOpen(false);
       setPendingDeleteId(null);
-      if (selectedSubCategory) loadMeasurements(selectedSubCategory.id);
+      if (selectedSubCategory) reloadCurrentPreset();
     } catch (e) {
       setMeasurementsError(e instanceof Error ? e.message : 'Failed to delete measurement');
     } finally {
@@ -188,9 +299,19 @@ export function MeasurementsPage() {
             {measurementsError}
           </div>
         )}
+        {presetsError && !measurementsError && (
+          <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-4 py-3 text-red-800 dark:text-red-200">
+            {presetsError}
+          </div>
+        )}
         <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
           <button
-            onClick={() => setSelectedSubCategory(null)}
+            onClick={() => {
+              setSelectedSubCategory(null);
+              setSelectedPreset(null);
+              setPresets([]);
+              setMeasurements([]);
+            }}
             className="flex items-center gap-2 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -198,6 +319,40 @@ export function MeasurementsPage() {
           </button>
           <ChevronRight className="w-4 h-4" />
           <span className="text-gray-900 dark:text-white font-medium">{selectedSubCategory.name}</span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 pb-4 border-b border-gray-200 dark:border-gray-700">
+          <span className="text-xs font-semibold tracking-wide text-blue-900 dark:text-blue-300 uppercase">
+            Quick Load Size Presets:
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            {presetsLoading && !presets.length ? (
+              <span className="text-sm text-gray-500 dark:text-gray-400">Loading presets...</span>
+            ) : (
+              presets.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => handleSelectPreset(preset)}
+                  className={presetChipClasses(preset.label, selectedPreset?.id === preset.id)}
+                >
+                  {preset.label}
+                </button>
+              ))
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setCreatePresetError(null);
+                setNewPresetLabel('');
+                setShowCreatePresetModal(true);
+              }}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-full border border-dashed border-blue-500 text-blue-600 dark:text-blue-400 text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Create New
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center justify-between">
@@ -208,7 +363,8 @@ export function MeasurementsPage() {
           <button
             className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
             onClick={() => setShowAddModal(true)}
-            disabled={measurementsLoading}
+            disabled={measurementsLoading || presetsLoading || !selectedPreset}
+            title={!selectedPreset ? 'Create or select a size preset first' : undefined}
           >
             <Plus className="w-5 h-5" />
             Add Measurement
@@ -289,7 +445,9 @@ export function MeasurementsPage() {
             </table>
             {!measurements.length && !measurementsLoading && (
               <div className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
-                No measurements yet. Add one to get started.
+                {selectedPreset
+                  ? `No measurements for size ${selectedPreset.label} yet. Add one to get started.`
+                  : 'Create a size preset to start adding measurements.'}
               </div>
             )}
           </div>
@@ -305,6 +463,68 @@ export function MeasurementsPage() {
             </p>
           </div>
         </div>
+
+        {/* Create Size Preset Modal */}
+        {showCreatePresetModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md mx-4 border border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white">Create Size Preset</h3>
+                <button
+                  onClick={() => {
+                    setShowCreatePresetModal(false);
+                    setNewPresetLabel('');
+                    setCreatePresetError(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                {createPresetError && (
+                  <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-4 py-3 text-sm text-red-800 dark:text-red-200">
+                    {createPresetError}
+                  </div>
+                )}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Size Label <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={newPresetLabel}
+                    onChange={(e) => setNewPresetLabel(e.target.value)}
+                    placeholder="e.g., 32, 34, 36"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newPresetLabel.trim()) handleCreatePreset();
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={() => {
+                    setShowCreatePresetModal(false);
+                    setNewPresetLabel('');
+                    setCreatePresetError(null);
+                  }}
+                  className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreatePreset}
+                  disabled={submitting || !newPresetLabel.trim()}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                >
+                  Submit
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Add Measurement Modal */}
         {showAddModal && (

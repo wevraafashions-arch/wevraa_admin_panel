@@ -27,7 +27,7 @@ export const designsService = {
 
   /**
    * Create design with image upload. POST multipart/form-data to /designs/with-image.
-   * Fields: image (file, required), designName (required), description, categoryId (required), subcategoryId (required).
+   * Fields: image (file, required), designName (required), description, categoryId (required), subcategoryId (required), tags (comma-separated).
    */
   async createWithImage(formData: FormData): Promise<Design> {
     return apiClient<Design>(`${DESIGNS_PATH}/with-image`, {
@@ -48,7 +48,7 @@ export const designsService = {
 
   /**
    * Update design with optional new image. PATCH multipart/form-data to /designs/:id/with-image.
-   * Fields: image (file, optional), designName, description, categoryId, subcategoryId.
+   * Fields: image (file, optional), designName, description, categoryId, subcategoryId, tags (comma-separated).
    */
   async updateWithImage(id: string, formData: FormData): Promise<Design> {
     return apiClient<Design>(`${DESIGNS_PATH}/${id}/with-image`, {

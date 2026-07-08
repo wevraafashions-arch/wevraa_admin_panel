@@ -5,6 +5,7 @@ export interface Design {
   categoryId: string;
   subcategoryId: string;
   imageUrl: string;
+  tags?: string[];
   createdAt?: string;
   updatedAt?: string;
   category?: { id: string; name: string };
@@ -17,6 +18,7 @@ export interface CreateDesignRequest {
   categoryId: string;
   subcategoryId: string;
   imageUrl: string;
+  tags?: string[];
 }
 
 export type UpdateDesignRequest = Partial<
