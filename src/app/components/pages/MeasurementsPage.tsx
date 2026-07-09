@@ -7,31 +7,18 @@ import type { ApiTailorCategory } from '../../api/types/tailorCategory';
 import type { ApiMeasurement } from '../../api/types/measurement';
 import type { ApiMeasurementPreset } from '../../api/types/measurementPreset';
 import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
+import { SortablePresetChips } from '../measurements/SortablePresetChips';
 
 function sortMeasurements(items: ApiMeasurement[]): ApiMeasurement[] {
   return [...items].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 }
 
 function sortPresets(items: ApiMeasurementPreset[]): ApiMeasurementPreset[] {
-  return [...items].sort((a, b) => {
-    const aIsDefault = a.label.toLowerCase() === 'default';
-    const bIsDefault = b.label.toLowerCase() === 'default';
-    if (aIsDefault !== bIsDefault) return aIsDefault ? -1 : 1;
-    return a.sortOrder - b.sortOrder;
-  });
+  return [...items].sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
 function findDefaultPreset(items: ApiMeasurementPreset[]): ApiMeasurementPreset | undefined {
   return items.find((p) => p.label.toLowerCase() === 'default');
-}
-
-function presetChipClasses(label: string, selected: boolean): string {
-  const compact = label.length <= 3;
-  const size = compact ? 'size-10 text-sm' : 'size-14 text-[11px] leading-none';
-  const state = selected
-    ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-600 text-blue-700 dark:text-blue-400'
-    : 'bg-white dark:bg-gray-800 border-gray-400 dark:border-gray-500 text-gray-900 dark:text-white hover:border-blue-400';
-  return `inline-flex items-center justify-center rounded-full border font-medium transition-colors shrink-0 ${size} ${state}`;
 }
 
 export function MeasurementsPage() {
@@ -46,6 +33,7 @@ export function MeasurementsPage() {
   const [selectedPreset, setSelectedPreset] = useState<ApiMeasurementPreset | null>(null);
   const [presetsLoading, setPresetsLoading] = useState(false);
   const [presetsError, setPresetsError] = useState<string | null>(null);
+  const [reorderingPresets, setReorderingPresets] = useState(false);
 
   const [measurements, setMeasurements] = useState<ApiMeasurement[]>([]);
   const [measurementsLoading, setMeasurementsLoading] = useState(false);
@@ -128,6 +116,31 @@ export function MeasurementsPage() {
     setSelectedPreset(preset);
     setMeasurements(preset.measurements ? sortMeasurements(preset.measurements) : []);
   };
+
+  const handlePresetReorder = useCallback(
+    async (reordered: ApiMeasurementPreset[]) => {
+      if (!selectedSubCategory) return;
+
+      const withSortOrder = reordered.map((preset, index) => ({ ...preset, sortOrder: index }));
+      setPresets(withSortOrder);
+      setReorderingPresets(true);
+      setPresetsError(null);
+
+      try {
+        await Promise.all(
+          withSortOrder.map((preset, index) =>
+            measurementPresetsService.update(preset.id, { sortOrder: index })
+          )
+        );
+      } catch (e) {
+        setPresetsError(e instanceof Error ? e.message : 'Failed to save preset order');
+        loadPresets(selectedSubCategory.id, selectedPreset?.id);
+      } finally {
+        setReorderingPresets(false);
+      }
+    },
+    [loadPresets, selectedPreset?.id, selectedSubCategory]
+  );
 
   const handleCreatePreset = async () => {
     if (!selectedSubCategory || !newPresetLabel.trim()) return;
@@ -321,24 +334,23 @@ export function MeasurementsPage() {
           <span className="text-gray-900 dark:text-white font-medium">{selectedSubCategory.name}</span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 pb-4 border-b border-gray-200 dark:border-gray-700">
-          <span className="text-xs font-semibold tracking-wide text-blue-900 dark:text-blue-300 uppercase">
+        <div className="flex flex-col gap-3 pb-4 border-b border-gray-200 dark:border-gray-700 sm:flex-row sm:items-center">
+          <span className="text-xs font-semibold tracking-wide text-blue-900 dark:text-blue-300 uppercase shrink-0">
             Quick Load Size Presets:
           </span>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-1 items-center gap-2 min-w-0">
             {presetsLoading && !presets.length ? (
               <span className="text-sm text-gray-500 dark:text-gray-400">Loading presets...</span>
             ) : (
-              presets.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  onClick={() => handleSelectPreset(preset)}
-                  className={presetChipClasses(preset.label, selectedPreset?.id === preset.id)}
-                >
-                  {preset.label}
-                </button>
-              ))
+              <div className="flex-1 min-w-0">
+                <SortablePresetChips
+                  presets={presets}
+                  selectedPresetId={selectedPreset?.id ?? null}
+                  onSelect={handleSelectPreset}
+                  onReorder={handlePresetReorder}
+                  disabled={reorderingPresets || presetsLoading}
+                />
+              </div>
             )}
             <button
               type="button"
@@ -347,7 +359,7 @@ export function MeasurementsPage() {
                 setNewPresetLabel('');
                 setShowCreatePresetModal(true);
               }}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-full border border-dashed border-blue-500 text-blue-600 dark:text-blue-400 text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+              className="flex items-center gap-1.5 px-4 py-2 h-11 rounded-full border border-dashed border-blue-500 text-blue-600 dark:text-blue-400 text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors shrink-0"
             >
               <Plus className="w-4 h-4" />
               Create New
