@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Edit, Trash2, ArrowLeft, ChevronRight, Ruler, ToggleLeft, ToggleRight, X, Image as ImageIcon } from 'lucide-react';
+import { Plus, ArrowLeft, ChevronRight, Ruler, ToggleLeft, ToggleRight, X, Image as ImageIcon } from 'lucide-react';
 import { tailorCategoriesService } from '../../api/services/tailorCategoriesService';
 import { measurementsService } from '../../api/services/measurementsService';
 import { measurementPresetsService } from '../../api/services/measurementPresetsService';
@@ -8,6 +8,7 @@ import type { ApiMeasurement } from '../../api/types/measurement';
 import type { ApiMeasurementPreset } from '../../api/types/measurementPreset';
 import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
 import { SortablePresetChips } from '../measurements/SortablePresetChips';
+import { SortableMeasurementsTable } from '../measurements/SortableMeasurementsTable';
 
 function sortMeasurements(items: ApiMeasurement[]): ApiMeasurement[] {
   return [...items].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
@@ -34,6 +35,7 @@ export function MeasurementsPage() {
   const [presetsLoading, setPresetsLoading] = useState(false);
   const [presetsError, setPresetsError] = useState<string | null>(null);
   const [reorderingPresets, setReorderingPresets] = useState(false);
+  const [reorderingMeasurements, setReorderingMeasurements] = useState(false);
 
   const [measurements, setMeasurements] = useState<ApiMeasurement[]>([]);
   const [measurementsLoading, setMeasurementsLoading] = useState(false);
@@ -186,6 +188,41 @@ export function MeasurementsPage() {
       loadPresets(selectedSubCategory.id, selectedPreset?.id);
     }
   };
+
+  const handleMeasurementReorder = useCallback(
+    async (reordered: ApiMeasurement[]) => {
+      if (!selectedPreset) return;
+
+      const withSortOrder = reordered.map((measurement, index) => ({
+        ...measurement,
+        sortOrder: index,
+      }));
+      setMeasurements(withSortOrder);
+      setReorderingMeasurements(true);
+      setMeasurementsError(null);
+
+      try {
+        await measurementPresetsService.bulkSaveMeasurements(selectedPreset.id, {
+          items: withSortOrder.map((measurement, index) => ({
+            name: measurement.name,
+            value: String(measurement.value),
+            unit: measurement.unit || 'inches',
+            status: measurement.status,
+            imageUrl: measurement.imageUrl ?? null,
+            sortOrder: index,
+          })),
+        });
+      } catch (e) {
+        setMeasurementsError(e instanceof Error ? e.message : 'Failed to save measurement order');
+        if (selectedSubCategory?.id) {
+          loadPresets(selectedSubCategory.id, selectedPreset.id);
+        }
+      } finally {
+        setReorderingMeasurements(false);
+      }
+    },
+    [selectedPreset, selectedSubCategory?.id, loadPresets]
+  );
 
   const handleAddMeasurement = async () => {
     if (!selectedSubCategory || !selectedPreset || !newMeasurement.name.trim()) return;
@@ -388,81 +425,21 @@ export function MeasurementsPage() {
             Loading measurements...
           </div>
         ) : (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden border border-gray-200 dark:border-gray-700">
-            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-              <thead className="bg-gray-50 dark:bg-gray-700">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Measurement Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Value</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Unit</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                {measurements.map((measurement) => (
-                  <tr key={measurement.id} className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 ${measurement.status === 'DISABLED' ? 'opacity-60' : ''}`}>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <button
-                        onClick={() => setSelectedMeasurement(measurement)}
-                        className="flex items-center gap-2 hover:text-blue-600 dark:hover:text-blue-400 transition-colors text-left"
-                      >
-                        <ImageIcon className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                        <Ruler className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                        <span className="text-sm font-medium text-gray-900 dark:text-white">{measurement.name}</span>
-                      </button>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900 dark:text-white">{measurement.value}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">{measurement.unit}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <button
-                        onClick={() => handleToggleStatus(measurement)}
-                        disabled={submitting}
-                        className="flex items-center gap-2 text-sm disabled:opacity-50"
-                      >
-                        {measurement.status === 'ENABLED' ? (
-                          <>
-                            <ToggleRight className="w-6 h-6 text-green-600 dark:text-green-400" />
-                            <span className="text-green-700 dark:text-green-400 font-medium">Enabled</span>
-                          </>
-                        ) : (
-                          <>
-                            <ToggleLeft className="w-6 h-6 text-gray-400" />
-                            <span className="text-gray-500 dark:text-gray-400 font-medium">Disabled</span>
-                          </>
-                        )}
-                      </button>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex gap-2 justify-end">
-                        <button
-                          onClick={() => openEdit(measurement)}
-                          disabled={submitting}
-                          className="p-2 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors disabled:opacity-50"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => openDeleteDialog(measurement.id)}
-                          disabled={submitting}
-                          className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-50"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {!measurements.length && !measurementsLoading && (
-              <div className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
-                {selectedPreset
-                  ? `No measurements for size ${selectedPreset.label} yet. Add one to get started.`
-                  : 'Create a size preset to start adding measurements.'}
-              </div>
-            )}
-          </div>
+          <SortableMeasurementsTable
+            measurements={measurements}
+            submitting={submitting}
+            reordering={reorderingMeasurements}
+            onReorder={handleMeasurementReorder}
+            onSelectMeasurement={setSelectedMeasurement}
+            onToggleStatus={handleToggleStatus}
+            onEdit={openEdit}
+            onDelete={openDeleteDialog}
+            emptyMessage={
+              selectedPreset
+                ? `No measurements for size ${selectedPreset.label} yet. Add one to get started.`
+                : 'Create a size preset to start adding measurements.'
+            }
+          />
         )}
 
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 flex items-start gap-3">
