@@ -1,4 +1,5 @@
 import { memo, useCallback, useId, useState, type CSSProperties } from 'react';
+import { Trash2 } from 'lucide-react';
 import {
   DndContext,
   DragOverlay,
@@ -23,64 +24,101 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import type { ApiMeasurementPreset } from '../../api/types/measurementPreset';
 
-function presetChipClasses(label: string, selected: boolean, dragging = false): string {
+function isDefaultPreset(label: string): boolean {
+  return label.toLowerCase() === 'default';
+}
+
+function chipContainerClasses(label: string, selected: boolean, dragging = false): string {
   const compact = label.length <= 3;
-  const size = compact ? 'min-w-11 h-11 px-3 text-sm' : 'min-w-16 h-11 px-4 text-xs leading-tight';
+  const width = compact ? 'min-w-[3.25rem]' : 'min-w-[4.5rem]';
   const state = selected
     ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-600 text-blue-700 dark:text-blue-400'
     : 'bg-white dark:bg-gray-800 border-gray-400 dark:border-gray-500 text-gray-900 dark:text-white hover:border-blue-400';
-  const drag = dragging ? 'shadow-lg ring-2 ring-blue-400/60 scale-105 z-50 cursor-grabbing' : 'cursor-grab';
-  return `inline-flex items-center justify-center rounded-full border font-medium transition-[transform,box-shadow,border-color,background-color] shrink-0 touch-none select-none ${size} ${state} ${drag}`;
+  const drag = dragging ? 'shadow-lg ring-2 ring-blue-400/60 scale-105 z-50' : '';
+  return `inline-flex items-center h-11 rounded-full border font-medium transition-[transform,box-shadow,border-color,background-color] shrink-0 ${width} ${state} ${drag}`;
 }
 
 function placeholderClasses(label: string): string {
   const compact = label.length <= 3;
-  const size = compact ? 'min-w-11 h-11' : 'min-w-16 h-11';
+  const size = compact ? 'min-w-[3.25rem] h-11' : 'min-w-[4.5rem] h-11';
   return `inline-flex items-center justify-center rounded-full border-2 border-dashed border-blue-400 bg-blue-50/50 dark:bg-blue-900/20 shrink-0 ${size}`;
 }
 
-interface PresetChipProps {
+interface PresetChipContentProps {
   label: string;
   selected: boolean;
+  deletable?: boolean;
   dragging?: boolean;
-  isPlaceholder?: boolean;
+  disabled?: boolean;
   onSelect?: () => void;
+  onDelete?: () => void;
   style?: CSSProperties;
   setNodeRef?: (node: HTMLElement | null) => void;
-  attributes?: DraggableAttributes;
-  listeners?: SyntheticListenerMap;
+  dragAttributes?: DraggableAttributes;
+  dragListeners?: SyntheticListenerMap;
 }
 
-const PresetChip = memo(function PresetChip({
+const PresetChipContent = memo(function PresetChipContent({
   label,
   selected,
+  deletable = false,
   dragging = false,
-  isPlaceholder = false,
+  disabled = false,
   onSelect,
+  onDelete,
   style,
   setNodeRef,
-  attributes,
-  listeners,
-}: PresetChipProps) {
-  if (isPlaceholder) {
-    return <div className={placeholderClasses(label)} style={style} aria-hidden />;
-  }
+  dragAttributes,
+  dragListeners,
+}: PresetChipContentProps) {
+  const isDefault = isDefaultPreset(label);
+  const compact = label.length <= 3;
 
   return (
-    <button
+    <div
       ref={setNodeRef}
-      type="button"
       style={style}
-      onClick={onSelect}
-      className={presetChipClasses(label, selected, dragging)}
-      aria-pressed={selected}
-      aria-label={`Size preset ${label}. Drag to reorder.`}
+      className={chipContainerClasses(label, selected, dragging)}
       role="listitem"
-      {...attributes}
-      {...listeners}
     >
-      {label}
-    </button>
+      <button
+        type="button"
+        onClick={onSelect}
+        className={`flex-1 h-full flex items-center justify-center touch-none cursor-grab active:cursor-grabbing focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset rounded-full ${
+          compact ? 'text-sm pl-3' : 'text-xs leading-tight pl-4'
+        } ${deletable ? 'pr-0.5' : 'pr-3'}`}
+        aria-pressed={selected}
+        aria-label={`Size preset ${label}. Drag to reorder.`}
+        {...dragAttributes}
+        {...dragListeners}
+      >
+        {label}
+      </button>
+
+      {deletable && !isDefault && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete?.();
+          }}
+          disabled={disabled}
+          className="flex items-center justify-center w-7 h-7 mr-1 rounded-full text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+          aria-label={`Delete size ${label}`}
+          title={`Delete size ${label}`}
+        >
+          <Trash2 className="w-3.5 h-3.5" strokeWidth={2} />
+        </button>
+      )}
+
+      {isDefault && (
+        <span
+          className="w-2 shrink-0"
+          title="Default preset cannot be deleted"
+          aria-hidden
+        />
+      )}
+    </div>
   );
 });
 
@@ -88,6 +126,7 @@ interface SortablePresetChipProps {
   preset: ApiMeasurementPreset;
   selected: boolean;
   onSelect: (preset: ApiMeasurementPreset) => void;
+  onDelete: (preset: ApiMeasurementPreset) => void;
   disabled?: boolean;
 }
 
@@ -95,6 +134,7 @@ const SortablePresetChip = memo(function SortablePresetChip({
   preset,
   selected,
   onSelect,
+  onDelete,
   disabled = false,
 }: SortablePresetChipProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -117,14 +157,17 @@ const SortablePresetChip = memo(function SortablePresetChip({
   }
 
   return (
-    <PresetChip
+    <PresetChipContent
       label={preset.label}
       selected={selected}
+      deletable
+      disabled={disabled}
       onSelect={() => onSelect(preset)}
+      onDelete={() => onDelete(preset)}
       setNodeRef={setNodeRef}
       style={style}
-      attributes={attributes}
-      listeners={listeners}
+      dragAttributes={attributes}
+      dragListeners={listeners}
     />
   );
 });
@@ -134,6 +177,7 @@ export interface SortablePresetChipsProps {
   selectedPresetId: string | null;
   onSelect: (preset: ApiMeasurementPreset) => void;
   onReorder: (reordered: ApiMeasurementPreset[]) => void | Promise<void>;
+  onDelete: (preset: ApiMeasurementPreset) => void;
   disabled?: boolean;
 }
 
@@ -142,6 +186,7 @@ export function SortablePresetChips({
   selectedPresetId,
   onSelect,
   onReorder,
+  onDelete,
   disabled = false,
 }: SortablePresetChipsProps) {
   const dndId = useId();
@@ -215,6 +260,7 @@ export function SortablePresetChips({
                 preset={preset}
                 selected={selectedPresetId === preset.id}
                 onSelect={onSelect}
+                onDelete={onDelete}
                 disabled={disabled}
               />
             ))}
@@ -224,7 +270,7 @@ export function SortablePresetChips({
 
       <DragOverlay dropAnimation={{ duration: 200, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1)' }}>
         {activePreset ? (
-          <PresetChip
+          <PresetChipContent
             label={activePreset.label}
             selected={selectedPresetId === activePreset.id}
             dragging

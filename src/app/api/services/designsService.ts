@@ -1,5 +1,10 @@
 import { apiClient } from '../client';
-import type { Design, CreateDesignRequest, UpdateDesignRequest } from '../types/design';
+import type {
+  Design,
+  CreateDesignRequest,
+  CreateDesignsResponse,
+  UpdateDesignRequest,
+} from '../types/design';
 
 const DESIGNS_PATH = '/designs';
 
@@ -26,30 +31,28 @@ export const designsService = {
   },
 
   /**
-   * Create design with image upload. POST multipart/form-data to /designs/with-image.
-   * Fields: image (file, required), designName (required), description, categoryId (required), subcategoryId (required), tags (comma-separated).
+   * Single image upload. POST multipart/form-data to /designs/with-image.
+   * Fields: image (required), designName, categoryId, subcategoryId, description, tags.
+   * pinterestBoardUrl is ignored when image is sent.
    */
-  async createWithImage(formData: FormData): Promise<Design> {
-    return apiClient<Design>(`${DESIGNS_PATH}/with-image`, {
+  async createWithImage(formData: FormData): Promise<CreateDesignsResponse> {
+    return apiClient<CreateDesignsResponse>(`${DESIGNS_PATH}/with-image`, {
       method: 'POST',
       body: formData,
     });
   },
 
   /**
-   * Create design with existing image URL (JSON).
+   * Pinterest board import or duplicate by imageUrl. POST /designs (JSON).
+   * Board URL only → one design per scraped pin. Re-sync skips existing pins.
    */
-  async create(body: CreateDesignRequest): Promise<Design> {
-    return apiClient<Design>(DESIGNS_PATH, {
+  async create(body: CreateDesignRequest): Promise<CreateDesignsResponse> {
+    return apiClient<CreateDesignsResponse>(DESIGNS_PATH, {
       method: 'POST',
       body: JSON.stringify(body),
     });
   },
 
-  /**
-   * Update design with optional new image. PATCH multipart/form-data to /designs/:id/with-image.
-   * Fields: image (file, optional), designName, description, categoryId, subcategoryId, tags (comma-separated).
-   */
   async updateWithImage(id: string, formData: FormData): Promise<Design> {
     return apiClient<Design>(`${DESIGNS_PATH}/${id}/with-image`, {
       method: 'PATCH',
@@ -57,9 +60,6 @@ export const designsService = {
     });
   },
 
-  /**
-   * Update design (JSON). All fields optional.
-   */
   async update(id: string, body: UpdateDesignRequest): Promise<Design> {
     return apiClient<Design>(`${DESIGNS_PATH}/${id}`, {
       method: 'PATCH',

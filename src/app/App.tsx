@@ -37,11 +37,13 @@ import { AuditLogsPage } from './components/pages/AuditLogsPage';
 import { SettingsPage } from './components/pages/SettingsPage';
 import { TaxSettingsPage } from './components/pages/TaxSettingsPage';
 import { BannersPage } from './components/pages/BannersPage';
+import { Toaster } from 'sonner';
 
 export default function App() {
   return (
     <BrowserRouter>
       <ThemeProvider>
+        <Toaster position="top-right" richColors closeButton />
         <AuthProvider>
           <ReviewSettingsProvider>
             <TailorCategoriesProvider>

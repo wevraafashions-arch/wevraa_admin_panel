@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, ArrowLeft, ChevronRight, Ruler, ToggleLeft, ToggleRight, X, Image as ImageIcon } from 'lucide-react';
+import { toast } from 'sonner';
 import { tailorCategoriesService } from '../../api/services/tailorCategoriesService';
 import { measurementsService } from '../../api/services/measurementsService';
 import { measurementPresetsService } from '../../api/services/measurementPresetsService';
@@ -52,6 +53,9 @@ export function MeasurementsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [presetDeleteDialogOpen, setPresetDeleteDialogOpen] = useState(false);
+  const [pendingDeletePreset, setPendingDeletePreset] = useState<ApiMeasurementPreset | null>(null);
+  const [deletingPreset, setDeletingPreset] = useState(false);
 
   const [newMeasurement, setNewMeasurement] = useState({
     name: '',
@@ -117,6 +121,31 @@ export function MeasurementsPage() {
   const handleSelectPreset = (preset: ApiMeasurementPreset) => {
     setSelectedPreset(preset);
     setMeasurements(preset.measurements ? sortMeasurements(preset.measurements) : []);
+  };
+
+  const openPresetDeleteDialog = (preset: ApiMeasurementPreset) => {
+    if (preset.label.toLowerCase() === 'default') return;
+    setPendingDeletePreset(preset);
+    setPresetDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDeletePreset = async () => {
+    if (!pendingDeletePreset || !selectedSubCategory) return;
+    setDeletingPreset(true);
+    try {
+      const result = await measurementPresetsService.delete(pendingDeletePreset.id);
+      const wasSelected = selectedPreset?.id === pendingDeletePreset.id;
+      setPresetDeleteDialogOpen(false);
+      setPendingDeletePreset(null);
+      toast.success(`Size ${result.label} deleted`);
+      loadPresets(selectedSubCategory.id, wasSelected ? null : selectedPreset?.id);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to delete size preset';
+      setPresetsError(message);
+      toast.error(message);
+    } finally {
+      setDeletingPreset(false);
+    }
   };
 
   const handlePresetReorder = useCallback(
@@ -385,7 +414,8 @@ export function MeasurementsPage() {
                   selectedPresetId={selectedPreset?.id ?? null}
                   onSelect={handleSelectPreset}
                   onReorder={handlePresetReorder}
-                  disabled={reorderingPresets || presetsLoading}
+                  onDelete={openPresetDeleteDialog}
+                  disabled={reorderingPresets || presetsLoading || deletingPreset}
                 />
               </div>
             )}
@@ -698,6 +728,22 @@ export function MeasurementsPage() {
             </div>
           </div>
         )}
+
+        <ConfirmDeleteDialog
+          open={presetDeleteDialogOpen}
+          onOpenChange={(open) => {
+            setPresetDeleteDialogOpen(open);
+            if (!open) setPendingDeletePreset(null);
+          }}
+          title={`Delete size ${pendingDeletePreset?.label ?? ''}`}
+          description={
+            pendingDeletePreset
+              ? `Delete size ${pendingDeletePreset.label} and all its measurements? This action cannot be undone.`
+              : 'Delete this size preset and all its measurements?'
+          }
+          onConfirm={handleConfirmDeletePreset}
+          isLoading={deletingPreset}
+        />
 
         <ConfirmDeleteDialog
           open={deleteDialogOpen}

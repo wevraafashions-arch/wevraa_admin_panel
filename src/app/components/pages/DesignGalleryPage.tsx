@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Plus, Search, Heart, X, Upload, Copy, Filter, Trash2, Edit } from 'lucide-react';
+import { Plus, Search, Heart, X, Upload, Copy, Filter, Trash2, Edit, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { designsService } from '../../api/services/designsService';
 import { tailorCategoriesService } from '../../api/services/tailorCategoriesService';
 import type { Design } from '../../api/types/design';
+import { showCreateDesignsToast } from '../../api/types/design';
 import type { ApiTailorCategory } from '../../api/types/tailorCategory';
 import { ApiError } from '../../api/client';
 import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
@@ -28,6 +30,7 @@ export function DesignGalleryPage() {
   const [imagePreview, setImagePreview] = useState<string>('');
   const [dragActive, setDragActive] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [syncingPinterest, setSyncingPinterest] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingDeleteDesign, setPendingDeleteDesign] = useState<Design | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -38,6 +41,7 @@ export function DesignGalleryPage() {
     tags: '',
     categoryId: '',
     subcategoryId: '',
+    pinterestBoardUrl: '',
   });
 
   const parseTags = (tags: string): string[] =>
@@ -45,6 +49,27 @@ export function DesignGalleryPage() {
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean);
+
+  const hasPinterestSource = Boolean(formDesign.pinterestBoardUrl.trim());
+  const hasImageSource = Boolean(imageFile || (isEditMode && imagePreview && !imageFile));
+
+  const notifyCreateResult = (result: { created: number; skipped: number }) => {
+    const message = showCreateDesignsToast(result);
+    if (result.created === 0 && result.skipped > 0) {
+      toast.info(message);
+    } else {
+      toast.success(message);
+    }
+  };
+
+  const clearImageSource = () => {
+    setImageFile(null);
+    setImagePreview('');
+  };
+
+  const clearPinterestSource = () => {
+    setFormDesign((prev) => ({ ...prev, pinterestBoardUrl: '' }));
+  };
 
   const loadCategories = async () => {
     try {
@@ -126,62 +151,88 @@ export function DesignGalleryPage() {
 
   const handleFile = (file: File) => {
     if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-      alert('Please upload a JPG, PNG or GIF image');
+      toast.error('Please upload a JPG, PNG or GIF image');
       return;
     }
     if (file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
-      alert(`Image must be under ${MAX_IMAGE_SIZE_MB}MB`);
+      toast.error(`Image must be under ${MAX_IMAGE_SIZE_MB}MB`);
       return;
     }
+    clearPinterestSource();
     setImageFile(file);
     const reader = new FileReader();
     reader.onloadend = () => setImagePreview(reader.result as string);
     reader.readAsDataURL(file);
   };
 
-  const buildFormData = (includeImage: boolean): FormData => {
+  const buildImageFormData = (): FormData => {
     const fd = new FormData();
-    if (includeImage && imageFile) fd.append('image', imageFile);
-    fd.append('designName', formDesign.designName);
+    if (imageFile) fd.append('image', imageFile);
+    fd.append('designName', formDesign.designName.trim());
     fd.append('description', formDesign.description);
-    fd.append('categoryId', formDesign.categoryId);
-    fd.append('subcategoryId', formDesign.subcategoryId);
+    fd.append('categoryId', formDesign.categoryId.trim());
+    fd.append('subcategoryId', formDesign.subcategoryId.trim());
     if (formDesign.tags.trim()) fd.append('tags', formDesign.tags.trim());
     return fd;
   };
 
+  const buildPinterestPayload = () => {
+    const tags = parseTags(formDesign.tags);
+    return {
+      designName: formDesign.designName.trim(),
+      description: formDesign.description.trim() || undefined,
+      categoryId: formDesign.categoryId.trim(),
+      subcategoryId: formDesign.subcategoryId.trim(),
+      tags: tags.length ? tags : undefined,
+      pinterestBoardUrl: formDesign.pinterestBoardUrl.trim(),
+    };
+  };
+
   const handleAddDesign = async () => {
     if (!formDesign.designName.trim() || !formDesign.categoryId || !formDesign.subcategoryId) {
-      alert('Please fill in design name, category and subcategory');
+      toast.error('Please fill in design name, category and subcategory');
       return;
     }
-    if (!imageFile) {
-      alert('Please upload an image');
+
+    const boardUrl = formDesign.pinterestBoardUrl.trim();
+    if (!imageFile && !boardUrl) {
+      toast.error('Please upload one image or provide a Pinterest board URL');
       return;
     }
+    if (imageFile && boardUrl) {
+      toast.error('Please use either an image upload or a Pinterest board URL, not both');
+      return;
+    }
+
     setSubmitting(true);
+    if (boardUrl) setSyncingPinterest(true);
+
     try {
-      const formData = buildFormData(true);
-      await designsService.createWithImage(formData);
+      const result = imageFile
+        ? await designsService.createWithImage(buildImageFormData())
+        : await designsService.create(buildPinterestPayload());
+
+      notifyCreateResult(result);
       await loadDesigns();
       resetModal();
     } catch (e) {
-      alert(e instanceof ApiError ? e.message : 'Failed to add design');
+      toast.error(e instanceof ApiError ? e.message : 'Failed to add design');
     } finally {
       setSubmitting(false);
+      setSyncingPinterest(false);
     }
   };
 
   const handleUpdateDesign = async () => {
     if (!editingDesignId || !formDesign.designName.trim() || !formDesign.categoryId || !formDesign.subcategoryId) {
-      alert('Please fill in design name, category and subcategory');
+      toast.error('Please fill in design name, category and subcategory');
       return;
     }
+
     setSubmitting(true);
     try {
       if (imageFile) {
-        const formData = buildFormData(true);
-        await designsService.updateWithImage(editingDesignId, formData);
+        await designsService.updateWithImage(editingDesignId, buildImageFormData());
       } else {
         await designsService.update(editingDesignId, {
           designName: formDesign.designName,
@@ -191,10 +242,11 @@ export function DesignGalleryPage() {
           tags: parseTags(formDesign.tags),
         });
       }
+      toast.success('Design updated successfully');
       await loadDesigns();
       resetModal();
     } catch (e) {
-      alert(e instanceof ApiError ? e.message : 'Failed to update design');
+      toast.error(e instanceof ApiError ? e.message : 'Failed to update design');
     } finally {
       setSubmitting(false);
     }
@@ -209,6 +261,7 @@ export function DesignGalleryPage() {
       tags: (design.tags ?? []).join(', '),
       categoryId: design.categoryId,
       subcategoryId: design.subcategoryId,
+      pinterestBoardUrl: '',
     });
     setImageFile(null);
     setImagePreview(design.imageUrl);
@@ -218,7 +271,7 @@ export function DesignGalleryPage() {
 
   const handleDuplicateDesign = async (design: Design) => {
     try {
-      await designsService.create({
+      const result = await designsService.create({
         designName: `${design.designName} (Copy)`,
         description: design.description || undefined,
         categoryId: design.categoryId,
@@ -226,9 +279,10 @@ export function DesignGalleryPage() {
         imageUrl: design.imageUrl,
         tags: design.tags?.length ? design.tags : undefined,
       });
+      notifyCreateResult(result);
       await loadDesigns();
     } catch (e) {
-      alert(e instanceof ApiError ? e.message : 'Failed to duplicate design');
+      toast.error(e instanceof ApiError ? e.message : 'Failed to duplicate design');
     }
   };
 
@@ -246,7 +300,7 @@ export function DesignGalleryPage() {
       setDeleteDialogOpen(false);
       setPendingDeleteDesign(null);
     } catch (e) {
-      alert(e instanceof ApiError ? e.message : 'Failed to delete design');
+      toast.error(e instanceof ApiError ? e.message : 'Failed to delete design');
     } finally {
       setDeleting(false);
     }
@@ -256,9 +310,17 @@ export function DesignGalleryPage() {
     setShowAddModal(false);
     setIsEditMode(false);
     setEditingDesignId(null);
-    setFormDesign({ designName: '', description: '', tags: '', categoryId: '', subcategoryId: '' });
+    setFormDesign({
+      designName: '',
+      description: '',
+      tags: '',
+      categoryId: '',
+      subcategoryId: '',
+      pinterestBoardUrl: '',
+    });
     setImageFile(null);
     setImagePreview('');
+    setSyncingPinterest(false);
   };
 
   const filteredDesigns = designs.filter((d) => {
@@ -403,10 +465,13 @@ export function DesignGalleryPage() {
                     <Heart className="w-4 h-4 text-gray-600 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400" />
                   </button>
                 </div>
-                <div className="absolute bottom-3 left-3">
+                <div className="absolute bottom-3 left-3 flex gap-2">
                   <span className="px-2 py-1 bg-blue-600 text-white text-xs rounded-full">
                     {design.subcategory?.name ?? design.subcategoryId}
                   </span>
+                  {design.pinterestBoardUrl && (
+                    <span className="px-2 py-1 bg-red-600 text-white text-xs rounded-full">Pinterest</span>
+                  )}
                 </div>
               </div>
               <div
@@ -511,70 +576,184 @@ export function DesignGalleryPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Design Image {!isEditMode && <span className="text-red-500">*</span>}
-                </label>
-                <div
-                  className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
-                    dragActive ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : imagePreview ? 'border-green-500 bg-green-50 dark:bg-green-900/20' : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20'
-                  }`}
-                  onDragEnter={handleDrag}
-                  onDragLeave={handleDrag}
-                  onDragOver={handleDrag}
-                  onDrop={handleDrop}
-                  onClick={() => document.getElementById('designFileInput')?.click()}
-                >
-                  {imagePreview ? (
-                    <div className="space-y-4">
-                      <div className="relative w-full h-64 rounded-lg overflow-hidden">
-                        <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setImagePreview('');
-                            setImageFile(null);
-                          }}
-                          className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors shadow-lg"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                      <p className="text-sm text-green-700 dark:text-green-400 font-medium">✓ Image uploaded</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Click or drag to change (JPG/PNG/GIF, max 10MB)</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="flex justify-center">
-                        <div className="p-4 bg-blue-50 dark:bg-blue-900/50 rounded-full">
-                          <Upload className="w-8 h-8 text-blue-500 dark:text-blue-400" />
+              {!isEditMode && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Upload One Image {!hasPinterestSource && <span className="text-red-500">*</span>}
+                    </label>
+                    <div
+                      className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                        hasPinterestSource
+                          ? 'opacity-50 pointer-events-none border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'
+                          : dragActive
+                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 cursor-pointer'
+                            : imagePreview
+                              ? 'border-green-500 bg-green-50 dark:bg-green-900/20 cursor-pointer'
+                              : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 cursor-pointer'
+                      }`}
+                      onDragEnter={hasPinterestSource ? undefined : handleDrag}
+                      onDragLeave={hasPinterestSource ? undefined : handleDrag}
+                      onDragOver={hasPinterestSource ? undefined : handleDrag}
+                      onDrop={hasPinterestSource ? undefined : handleDrop}
+                      onClick={() => !hasPinterestSource && document.getElementById('designFileInput')?.click()}
+                    >
+                      {imagePreview ? (
+                        <div className="space-y-4">
+                          <div className="relative w-full h-64 rounded-lg overflow-hidden">
+                            <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                clearImageSource();
+                              }}
+                              className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors shadow-lg"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                          <p className="text-sm text-green-700 dark:text-green-400 font-medium">✓ Image ready</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">One image only — JPG/PNG/GIF, max 10MB</p>
                         </div>
-                      </div>
-                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Drop image here or click to browse</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">JPG, PNG, GIF — max 10MB</p>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="flex justify-center">
+                            <div className="p-4 bg-blue-50 dark:bg-blue-900/50 rounded-full">
+                              <Upload className="w-8 h-8 text-blue-500 dark:text-blue-400" />
+                            </div>
+                          </div>
+                          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Drop one image here or click to browse</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">Creates exactly 1 design</p>
+                        </div>
+                      )}
                     </div>
-                  )}
+                    <input
+                      id="designFileInput"
+                      type="file"
+                      accept="image/jpeg,image/jpg,image/png,image/gif"
+                      onChange={handleFileInput}
+                      className="hidden"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">or</span>
+                    <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Pinterest Board URL {!hasImageSource && <span className="text-red-500">*</span>}
+                    </label>
+                    <input
+                      type="url"
+                      value={formDesign.pinterestBoardUrl}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value.trim()) clearImageSource();
+                        setFormDesign({ ...formDesign, pinterestBoardUrl: value });
+                      }}
+                      disabled={Boolean(imageFile)}
+                      placeholder="https://in.pinterest.com/username/board-name/"
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                    <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      Imports one design per pin with the same name and metadata. Re-submitting the same board adds only new pins.
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {isEditMode && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Design Image <span className="text-gray-500 dark:text-gray-400 font-normal">(optional — replace current)</span>
+                  </label>
+                  <div
+                    className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
+                      dragActive ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : imagePreview ? 'border-green-500 bg-green-50 dark:bg-green-900/20' : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20'
+                    }`}
+                    onDragEnter={handleDrag}
+                    onDragLeave={handleDrag}
+                    onDragOver={handleDrag}
+                    onDrop={handleDrop}
+                    onClick={() => document.getElementById('designEditFileInput')?.click()}
+                  >
+                    {imagePreview ? (
+                      <div className="space-y-4">
+                        <div className="relative w-full h-64 rounded-lg overflow-hidden">
+                          <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+                          {imageFile && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setImageFile(null);
+                                setImagePreview(designs.find((d) => d.id === editingDesignId)?.imageUrl ?? '');
+                              }}
+                              className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors shadow-lg"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {imageFile ? 'New image will replace the current one' : 'Current design image'}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <p className="text-sm text-gray-500 dark:text-gray-400">No image preview</p>
+                      </div>
+                    )}
+                  </div>
+                  <input
+                    id="designEditFileInput"
+                    type="file"
+                    accept="image/jpeg,image/jpg,image/png,image/gif"
+                    onChange={handleFileInput}
+                    className="hidden"
+                  />
                 </div>
-                <input
-                  id="designFileInput"
-                  type="file"
-                  accept="image/jpeg,image/jpg,image/png,image/gif"
-                  onChange={handleFileInput}
-                  className="hidden"
-                />
-              </div>
+              )}
             </div>
 
+            {syncingPinterest && (
+              <div className="mx-6 mb-4 flex items-center gap-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 px-4 py-3 text-sm text-blue-800 dark:text-blue-200">
+                <Loader2 className="w-5 h-5 animate-spin shrink-0" />
+                <span>Syncing Pinterest board… This may take 30–90 seconds.</span>
+              </div>
+            )}
+
             <div className="sticky bottom-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-end gap-3">
-              <button onClick={resetModal} className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+              <button
+                onClick={resetModal}
+                disabled={submitting}
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
+              >
                 Cancel
               </button>
               <button
                 onClick={isEditMode ? handleUpdateDesign : handleAddDesign}
-                disabled={submitting}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                disabled={
+                  submitting ||
+                  !formDesign.designName.trim() ||
+                  !formDesign.categoryId ||
+                  !formDesign.subcategoryId ||
+                  (!isEditMode && !imageFile && !formDesign.pinterestBoardUrl.trim())
+                }
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2"
               >
-                {submitting ? 'Saving…' : isEditMode ? 'Update Design' : 'Add Design'}
+                {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                {submitting
+                  ? syncingPinterest
+                    ? 'Syncing…'
+                    : 'Saving…'
+                  : isEditMode
+                    ? 'Update Design'
+                    : 'Add Design'}
               </button>
             </div>
           </div>

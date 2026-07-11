@@ -3,6 +3,7 @@ import type {
   ApiMeasurementPreset,
   BulkSavePresetMeasurementsRequest,
   CreateMeasurementPresetRequest,
+  DeleteMeasurementPresetResponse,
   UpdateMeasurementPresetRequest,
 } from '../types/measurementPreset';
 import type { ApiMeasurement } from '../types/measurement';
@@ -36,8 +37,11 @@ export const measurementPresetsService = {
     });
   },
 
-  async delete(id: string): Promise<void> {
-    await apiClient<void>(`${MEASUREMENT_PRESETS_PATH}/${id}`, { method: 'DELETE' });
+  /** DELETE /measurement-presets/:id — removes preset and all its measurement rows. */
+  async delete(id: string): Promise<DeleteMeasurementPresetResponse> {
+    return apiClient<DeleteMeasurementPresetResponse>(`${MEASUREMENT_PRESETS_PATH}/${id}`, {
+      method: 'DELETE',
+    });
   },
 
   /** PUT /measurement-presets/:id/measurements — replaces all rows for the preset. */

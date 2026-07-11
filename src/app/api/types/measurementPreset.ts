@@ -36,3 +36,10 @@ export interface BulkSavePresetMeasurementItem {
 export interface BulkSavePresetMeasurementsRequest {
   items: BulkSavePresetMeasurementItem[];
 }
+
+export interface DeleteMeasurementPresetResponse {
+  message: string;
+  id: string;
+  label: string;
+  subcategoryId: string;
+}
