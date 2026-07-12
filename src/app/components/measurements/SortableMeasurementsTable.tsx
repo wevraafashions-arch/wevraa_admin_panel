@@ -23,6 +23,7 @@ import {
   Edit,
   GripVertical,
   Image as ImageIcon,
+  Loader2,
   Ruler,
   ToggleLeft,
   ToggleRight,
@@ -271,7 +272,18 @@ export function SortableMeasurementsTable({
   }, []);
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden border border-gray-200 dark:border-gray-700">
+    <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden border border-gray-200 dark:border-gray-700">
+      {reordering && (
+        <div
+          className="absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-lg bg-white/80 dark:bg-gray-900/80 backdrop-blur-[1px]"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <Loader2 className="w-5 h-5 animate-spin text-blue-600 dark:text-blue-400" />
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Saving order…</span>
+        </div>
+      )}
+      <div className={reordering ? 'pointer-events-none select-none opacity-60' : undefined}>
       <DndContext
         id={dndId}
         sensors={sensors}
@@ -356,6 +368,7 @@ export function SortableMeasurementsTable({
       {!measurements.length && (
         <div className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">{emptyMessage}</div>
       )}
+      </div>
     </div>
   );
 }

@@ -23,6 +23,10 @@ function findDefaultPreset(items: ApiMeasurementPreset[]): ApiMeasurementPreset 
   return items.find((p) => p.label.toLowerCase() === 'default');
 }
 
+function orderKey<T extends { id: string }>(items: T[]): string {
+  return items.map((item) => item.id).join('|');
+}
+
 export function MeasurementsPage() {
   const [tree, setTree] = useState<ApiTailorCategory[]>([]);
   const [treeLoading, setTreeLoading] = useState(true);
@@ -35,8 +39,10 @@ export function MeasurementsPage() {
   const [selectedPreset, setSelectedPreset] = useState<ApiMeasurementPreset | null>(null);
   const [presetsLoading, setPresetsLoading] = useState(false);
   const [presetsError, setPresetsError] = useState<string | null>(null);
-  const [reorderingPresets, setReorderingPresets] = useState(false);
-  const [reorderingMeasurements, setReorderingMeasurements] = useState(false);
+  const [savedPresetOrderKey, setSavedPresetOrderKey] = useState('');
+  const [savingPresetOrder, setSavingPresetOrder] = useState(false);
+  const [savedMeasurementOrderKey, setSavedMeasurementOrderKey] = useState('');
+  const [savingMeasurementOrder, setSavingMeasurementOrder] = useState(false);
 
   const [measurements, setMeasurements] = useState<ApiMeasurement[]>([]);
   const [measurementsLoading, setMeasurementsLoading] = useState(false);
@@ -86,6 +92,7 @@ export function MeasurementsPage() {
       const list = await measurementsService.getList({ presetId: preset.id });
       const sorted = sortMeasurements(list);
       setMeasurements(sorted);
+      setSavedMeasurementOrderKey(orderKey(sorted));
       setPresets((prev) =>
         prev.map((p) => (p.id === preset.id ? { ...p, measurements: sorted } : p))
       );
@@ -108,6 +115,7 @@ export function MeasurementsPage() {
         const list = await measurementPresetsService.getList(subcategoryId, true);
         const sorted = sortPresets(list);
         setPresets(sorted);
+        setSavedPresetOrderKey(orderKey(sorted));
         const defaultPreset = findDefaultPreset(sorted);
         const nextPreset = keepPresetId
           ? sorted.find((p) => p.id === keepPresetId) ?? defaultPreset ?? sorted[0] ?? null
@@ -174,30 +182,35 @@ export function MeasurementsPage() {
     }
   };
 
-  const handlePresetReorder = useCallback(
-    async (reordered: ApiMeasurementPreset[]) => {
-      if (!selectedSubCategory) return;
+  const hasUnsavedPresetOrder = presets.length > 0 && orderKey(presets) !== savedPresetOrderKey;
+  const hasUnsavedMeasurementOrder =
+    measurements.length > 0 && orderKey(measurements) !== savedMeasurementOrderKey;
 
-      const withSortOrder = reordered.map((preset, index) => ({ ...preset, sortOrder: index }));
-      setPresets(withSortOrder);
-      setReorderingPresets(true);
-      setPresetsError(null);
+  const handlePresetReorder = useCallback((reordered: ApiMeasurementPreset[]) => {
+    setPresets(reordered.map((preset, index) => ({ ...preset, sortOrder: index })));
+  }, []);
 
-      try {
-        await Promise.all(
-          withSortOrder.map((preset, index) =>
-            measurementPresetsService.update(preset.id, { sortOrder: index })
-          )
-        );
-      } catch (e) {
-        setPresetsError(e instanceof Error ? e.message : 'Failed to save preset order');
-        loadPresets(selectedSubCategory.id, selectedPreset?.id);
-      } finally {
-        setReorderingPresets(false);
-      }
-    },
-    [loadPresets, selectedPreset?.id, selectedSubCategory]
-  );
+  const handleSavePresetOrder = async () => {
+    if (!selectedSubCategory || !hasUnsavedPresetOrder) return;
+    setSavingPresetOrder(true);
+    setPresetsError(null);
+    try {
+      await Promise.all(
+        presets.map((preset, index) =>
+          measurementPresetsService.update(preset.id, { sortOrder: index })
+        )
+      );
+      setSavedPresetOrderKey(orderKey(presets));
+      toast.success('Preset order updated');
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to save preset order';
+      setPresetsError(message);
+      toast.error(message);
+      loadPresets(selectedSubCategory.id, selectedPreset?.id);
+    } finally {
+      setSavingPresetOrder(false);
+    }
+  };
 
   const handleCreatePreset = async () => {
     if (!selectedSubCategory || !newPresetLabel.trim()) return;
@@ -248,40 +261,43 @@ export function MeasurementsPage() {
     }
   };
 
-  const handleMeasurementReorder = useCallback(
-    async (reordered: ApiMeasurement[]) => {
-      if (!selectedPreset) return;
-
-      const withSortOrder = reordered.map((measurement, index) => ({
+  const handleMeasurementReorder = useCallback((reordered: ApiMeasurement[]) => {
+    setMeasurements(
+      reordered.map((measurement, index) => ({
         ...measurement,
         sortOrder: index,
-      }));
-      setMeasurements(withSortOrder);
-      setReorderingMeasurements(true);
-      setMeasurementsError(null);
+      }))
+    );
+  }, []);
 
-      try {
-        await measurementPresetsService.bulkSaveMeasurements(selectedPreset.id, {
-          items: withSortOrder.map((measurement, index) => ({
-            name: measurement.name,
-            value: String(measurement.value),
-            unit: measurement.unit || 'inches',
-            status: measurement.status,
-            imageUrl: measurement.imageUrl ?? null,
-            sortOrder: index,
-          })),
-        });
-      } catch (e) {
-        setMeasurementsError(e instanceof Error ? e.message : 'Failed to save measurement order');
-        if (selectedSubCategory?.id) {
-          loadPresets(selectedSubCategory.id, selectedPreset.id);
-        }
-      } finally {
-        setReorderingMeasurements(false);
+  const handleSaveMeasurementOrder = async () => {
+    if (!selectedPreset || !hasUnsavedMeasurementOrder) return;
+    setSavingMeasurementOrder(true);
+    setMeasurementsError(null);
+    try {
+      await measurementPresetsService.bulkSaveMeasurements(selectedPreset.id, {
+        items: measurements.map((measurement, index) => ({
+          name: measurement.name,
+          value: String(measurement.value),
+          unit: measurement.unit || 'inches',
+          status: measurement.status,
+          imageUrl: measurement.imageUrl ?? null,
+          sortOrder: index,
+        })),
+      });
+      setSavedMeasurementOrderKey(orderKey(measurements));
+      toast.success('Measurement order updated');
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to save measurement order';
+      setMeasurementsError(message);
+      toast.error(message);
+      if (selectedSubCategory?.id) {
+        loadMeasurementsForPreset(selectedPreset);
       }
-    },
-    [selectedPreset, selectedSubCategory?.id, loadPresets]
-  );
+    } finally {
+      setSavingMeasurementOrder(false);
+    }
+  };
 
   const handleAddMeasurement = async () => {
     if (!selectedSubCategory || !selectedPreset || !newMeasurement.name.trim()) return;
@@ -438,22 +454,29 @@ export function MeasurementsPage() {
             {presetsLoading && !presets.length ? (
               <span className="text-sm text-gray-500 dark:text-gray-400">Loading presets...</span>
             ) : (
-              <div className="flex-1 min-w-0 relative">
-                {reorderingPresets && (
-                  <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-lg bg-white/80 dark:bg-gray-900/80 backdrop-blur-[1px]">
-                    <Loader2 className="w-5 h-5 animate-spin text-blue-600 dark:text-blue-400" />
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Saving order…</span>
-                  </div>
-                )}
+              <div className="flex-1 min-w-0">
                 <SortablePresetChips
                   presets={presets}
                   selectedPresetId={selectedPreset?.id ?? null}
                   onSelect={handleSelectPreset}
                   onReorder={handlePresetReorder}
                   onDelete={openPresetDeleteDialog}
-                  disabled={reorderingPresets || presetsLoading || deletingPreset}
+                  disabled={savingPresetOrder || presetsLoading || deletingPreset}
                 />
               </div>
+            )}
+            {hasUnsavedPresetOrder && (
+              <button
+                type="button"
+                onClick={handleSavePresetOrder}
+                disabled={savingPresetOrder || presetsLoading}
+                className="flex items-center gap-1.5 px-4 py-2 h-11 rounded-full border border-amber-500 bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200 dark:border-amber-600 text-sm font-medium hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors shrink-0 disabled:opacity-50"
+              >
+                {savingPresetOrder ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : null}
+                Update adjustment
+              </button>
             )}
             <button
               type="button"
@@ -470,20 +493,35 @@ export function MeasurementsPage() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">{selectedSubCategory.name} - Measurements</h2>
             <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{selectedSubCategory.description}</p>
           </div>
-          <button
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-            onClick={() => setShowAddModal(true)}
-            disabled={measurementsLoading || presetsLoading || !selectedPreset}
-            title={!selectedPreset ? 'Create or select a size preset first' : undefined}
-          >
-            <Plus className="w-5 h-5" />
-            Add Measurement
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {hasUnsavedMeasurementOrder && (
+              <button
+                type="button"
+                onClick={handleSaveMeasurementOrder}
+                disabled={savingMeasurementOrder || measurementsLoading || !selectedPreset}
+                className="flex items-center gap-2 border border-amber-500 bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200 dark:border-amber-600 px-4 py-2 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors disabled:opacity-50 text-sm font-medium"
+              >
+                {savingMeasurementOrder ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : null}
+                Update adjustment
+              </button>
+            )}
+            <button
+              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              onClick={() => setShowAddModal(true)}
+              disabled={measurementsLoading || presetsLoading || !selectedPreset || savingMeasurementOrder}
+              title={!selectedPreset ? 'Create or select a size preset first' : undefined}
+            >
+              <Plus className="w-5 h-5" />
+              Add Measurement
+            </button>
+          </div>
         </div>
 
         {measurementsLoading && !measurements.length ? (
@@ -491,17 +529,10 @@ export function MeasurementsPage() {
             Loading measurements...
           </div>
         ) : (
-          <div className="relative">
-            {reorderingMeasurements && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-lg bg-white/80 dark:bg-gray-900/80 backdrop-blur-[1px]">
-                <Loader2 className="w-5 h-5 animate-spin text-blue-600 dark:text-blue-400" />
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Saving order…</span>
-              </div>
-            )}
-            <SortableMeasurementsTable
+          <SortableMeasurementsTable
             measurements={measurements}
             submitting={submitting}
-            reordering={reorderingMeasurements}
+            reordering={savingMeasurementOrder}
             onReorder={handleMeasurementReorder}
             onSelectMeasurement={setSelectedMeasurement}
             onToggleStatus={handleToggleStatus}
@@ -513,7 +544,6 @@ export function MeasurementsPage() {
                 : 'Create a size preset to start adding measurements.'
             }
           />
-          </div>
         )}
 
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 flex items-start gap-3">
