@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, ArrowLeft, ChevronRight, Ruler, ToggleLeft, ToggleRight, X, Image as ImageIcon } from 'lucide-react';
+import { Plus, ArrowLeft, ChevronRight, Ruler, ToggleLeft, ToggleRight, X, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { tailorCategoriesService } from '../../api/services/tailorCategoriesService';
 import { measurementsService } from '../../api/services/measurementsService';
@@ -176,6 +176,7 @@ export function MeasurementsPage() {
   const handleCreatePreset = async () => {
     if (!selectedSubCategory || !newPresetLabel.trim()) return;
     setSubmitting(true);
+    setMeasurementsLoading(true);
     setCreatePresetError(null);
     try {
       const created = await measurementPresetsService.create({
@@ -184,14 +185,16 @@ export function MeasurementsPage() {
         sortOrder: presets.length,
       });
 
-      const defaultPreset = findDefaultPreset(presets);
-      const defaultMeasurements = defaultPreset?.measurements
-        ? sortMeasurements(defaultPreset.measurements)
-        : [];
+      const sourceMeasurements =
+        measurements.length > 0
+          ? measurements
+          : selectedPreset?.measurements
+            ? sortMeasurements(selectedPreset.measurements)
+            : sortMeasurements(findDefaultPreset(presets)?.measurements ?? []);
 
-      if (defaultMeasurements.length > 0) {
+      if (sourceMeasurements.length > 0) {
         await measurementPresetsService.bulkSaveMeasurements(created.id, {
-          items: defaultMeasurements.map((m, index) => ({
+          items: sourceMeasurements.map((m, index) => ({
             name: m.name,
             value: String(m.value),
             unit: m.unit || 'inches',
@@ -206,6 +209,7 @@ export function MeasurementsPage() {
       setNewPresetLabel('');
       loadPresets(selectedSubCategory.id, created.id);
     } catch (e) {
+      setMeasurementsLoading(false);
       setCreatePresetError(e instanceof Error ? e.message : 'Failed to create size preset');
     } finally {
       setSubmitting(false);
@@ -408,7 +412,13 @@ export function MeasurementsPage() {
             {presetsLoading && !presets.length ? (
               <span className="text-sm text-gray-500 dark:text-gray-400">Loading presets...</span>
             ) : (
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0 relative">
+                {reorderingPresets && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-lg bg-white/80 dark:bg-gray-900/80 backdrop-blur-[1px]">
+                    <Loader2 className="w-5 h-5 animate-spin text-blue-600 dark:text-blue-400" />
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Saving order…</span>
+                  </div>
+                )}
                 <SortablePresetChips
                   presets={presets}
                   selectedPresetId={selectedPreset?.id ?? null}
@@ -455,7 +465,14 @@ export function MeasurementsPage() {
             Loading measurements...
           </div>
         ) : (
-          <SortableMeasurementsTable
+          <div className="relative">
+            {reorderingMeasurements && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-lg bg-white/80 dark:bg-gray-900/80 backdrop-blur-[1px]">
+                <Loader2 className="w-5 h-5 animate-spin text-blue-600 dark:text-blue-400" />
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Saving order…</span>
+              </div>
+            )}
+            <SortableMeasurementsTable
             measurements={measurements}
             submitting={submitting}
             reordering={reorderingMeasurements}
@@ -470,6 +487,7 @@ export function MeasurementsPage() {
                 : 'Create a size preset to start adding measurements.'
             }
           />
+          </div>
         )}
 
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 flex items-start gap-3">
@@ -517,9 +535,14 @@ export function MeasurementsPage() {
                     placeholder="e.g., 32, 34, 36"
                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && newPresetLabel.trim()) handleCreatePreset();
+                      if (e.key === 'Enter' && newPresetLabel.trim() && !submitting) handleCreatePreset();
                     }}
                   />
+                  {selectedPreset && measurements.length > 0 && (
+                    <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      Measurements from size <span className="font-medium">{selectedPreset.label}</span> will be copied to the new preset.
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200 dark:border-gray-700">
@@ -536,9 +559,10 @@ export function MeasurementsPage() {
                 <button
                   onClick={handleCreatePreset}
                   disabled={submitting || !newPresetLabel.trim()}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center gap-2"
                 >
-                  Submit
+                  {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {submitting ? 'Creating…' : 'Submit'}
                 </button>
               </div>
             </div>

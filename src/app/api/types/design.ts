@@ -38,6 +38,13 @@ export type UpdateDesignRequest = Partial<
   Omit<CreateDesignRequest, 'imageUrl'> & { imageUrl?: string }
 >;
 
+/** Response from DELETE /designs/bulk */
+export interface BulkDeleteDesignsResponse {
+  deleted: number;
+  notFound: string[];
+  message: string;
+}
+
 export function showCreateDesignsToast(result: CreateDesignsResponse) {
   const { created, skipped } = result;
   if (created === 1) {

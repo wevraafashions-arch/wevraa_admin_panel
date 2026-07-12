@@ -1,6 +1,7 @@
 import { apiClient } from '../client';
 import type {
   Design,
+  BulkDeleteDesignsResponse,
   CreateDesignRequest,
   CreateDesignsResponse,
   UpdateDesignRequest,
@@ -69,5 +70,13 @@ export const designsService = {
 
   async delete(id: string): Promise<void> {
     await apiClient<void>(`${DESIGNS_PATH}/${id}`, { method: 'DELETE' });
+  },
+
+  /** DELETE /designs/bulk — delete multiple admin designs by id. */
+  async bulkDelete(ids: string[]): Promise<BulkDeleteDesignsResponse> {
+    return apiClient<BulkDeleteDesignsResponse>(`${DESIGNS_PATH}/bulk`, {
+      method: 'DELETE',
+      body: JSON.stringify({ ids }),
+    });
   },
 };

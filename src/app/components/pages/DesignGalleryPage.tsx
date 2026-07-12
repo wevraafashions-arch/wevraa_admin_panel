@@ -34,6 +34,9 @@ export function DesignGalleryPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pendingDeleteDesign, setPendingDeleteDesign] = useState<Design | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const [formDesign, setFormDesign] = useState({
     designName: '',
@@ -296,13 +299,43 @@ export function DesignGalleryPage() {
     setDeleting(true);
     try {
       await designsService.delete(pendingDeleteDesign.id);
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(pendingDeleteDesign.id);
+        return next;
+      });
       await loadDesigns();
       setDeleteDialogOpen(false);
       setPendingDeleteDesign(null);
+      toast.success('Design deleted');
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : 'Failed to delete design');
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (!ids.length) return;
+    setBulkDeleting(true);
+    try {
+      const result = await designsService.bulkDelete(ids);
+      if (result.deleted > 0) {
+        toast.success(result.message);
+      } else {
+        toast.info(result.message);
+      }
+      if (result.notFound.length > 0) {
+        toast.warning('Some designs were already removed or could not be deleted');
+      }
+      clearSelection();
+      setBulkDeleteDialogOpen(false);
+      await loadDesigns();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Failed to delete designs');
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -334,23 +367,68 @@ export function DesignGalleryPage() {
     return name.includes(q) || desc.includes(q) || cat.includes(q) || sub.includes(q) || tagsStr.includes(q);
   });
 
+  const selectedCount = selectedIds.size;
+  const allPageSelected =
+    filteredDesigns.length > 0 && filteredDesigns.every((d) => selectedIds.has(d.id));
+  const somePageSelected = filteredDesigns.some((d) => selectedIds.has(d.id));
+
+  const toggleSelectDesign = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllPage = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allPageSelected) {
+        filteredDesigns.forEach((d) => next.delete(d.id));
+      } else {
+        filteredDesigns.forEach((d) => next.add(d.id));
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  useEffect(() => {
+    clearSelection();
+  }, [filterCategoryId, filterSubcategoryId]);
+
   return (
     <div className="space-y-6 dark:bg-gray-900">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">Design Gallery</h2>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Browse and showcase design inspirations</p>
         </div>
-        <button
-          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-          onClick={() => {
-            resetModal();
-            setShowAddModal(true);
-          }}
-        >
-          <Plus className="w-5 h-5" />
-          Add Design
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {selectedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setBulkDeleteDialogOpen(true)}
+              disabled={bulkDeleting}
+              className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete selected ({selectedCount})
+            </button>
+          )}
+          <button
+            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            onClick={() => {
+              resetModal();
+              setShowAddModal(true);
+            }}
+          >
+            <Plus className="w-5 h-5" />
+            Add Design
+          </button>
+        </div>
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
@@ -417,10 +495,63 @@ export function DesignGalleryPage() {
       {loading ? (
         <div className="text-sm text-gray-500 dark:text-gray-400">Loading designs…</div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {filteredDesigns.map((design) => (
-            <div key={design.id} className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden hover:shadow-lg transition-shadow group">
+        <>
+          {filteredDesigns.length > 0 && (
+            <div className="flex items-center justify-between gap-4 flex-wrap bg-white dark:bg-gray-800 rounded-lg shadow px-4 py-3 border border-gray-200 dark:border-gray-700">
+              <label className="flex items-center gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={allPageSelected}
+                  ref={(el) => {
+                    if (el) el.indeterminate = somePageSelected && !allPageSelected;
+                  }}
+                  onChange={toggleSelectAllPage}
+                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+                />
+                <span className="text-sm text-gray-700 dark:text-gray-300">
+                  Select all on this page ({filteredDesigns.length})
+                </span>
+              </label>
+              {selectedCount > 0 && (
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                    {selectedCount} selected
+                  </span>
+                  <button
+                    type="button"
+                    onClick={clearSelection}
+                    className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {filteredDesigns.map((design) => {
+            const isSelected = selectedIds.has(design.id);
+            return (
+            <div
+              key={design.id}
+              className={`bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden hover:shadow-lg transition-shadow group ${
+                isSelected ? 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-gray-900' : ''
+              }`}
+            >
               <div className="relative aspect-[3/4] overflow-hidden bg-gray-100 dark:bg-gray-700">
+                <label
+                  className="absolute top-3 left-3 z-10 flex items-center justify-center w-8 h-8 rounded-full bg-white/95 dark:bg-gray-800/95 shadow-md cursor-pointer hover:bg-white dark:hover:bg-gray-800 transition-colors"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleSelectDesign(design.id)}
+                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600"
+                    aria-label={`Select ${design.designName}`}
+                  />
+                </label>
                 <img
                   src={design.imageUrl}
                   alt={design.designName}
@@ -484,8 +615,10 @@ export function DesignGalleryPage() {
                 </p>
               </div>
             </div>
-          ))}
-        </div>
+            );
+          })}
+          </div>
+        </>
       )}
 
       {!loading && filteredDesigns.length === 0 && (
@@ -759,6 +892,15 @@ export function DesignGalleryPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDeleteDialog
+        open={bulkDeleteDialogOpen}
+        onOpenChange={(open) => setBulkDeleteDialogOpen(open)}
+        title="Delete selected designs"
+        description={`Delete ${selectedCount} design(s)? This action cannot be undone.`}
+        onConfirm={handleConfirmBulkDelete}
+        isLoading={bulkDeleting}
+      />
 
       <ConfirmDeleteDialog
         open={deleteDialogOpen}
