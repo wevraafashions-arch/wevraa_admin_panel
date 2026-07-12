@@ -78,36 +78,62 @@ export function MeasurementsPage() {
       .finally(() => setTreeLoading(false));
   }, []);
 
-  const loadPresets = useCallback((subcategoryId: string, keepPresetId?: string | null) => {
-    setPresetsLoading(true);
+  const loadMeasurementsForPreset = useCallback(async (preset: ApiMeasurementPreset) => {
+    setSelectedPreset(preset);
     setMeasurementsLoading(true);
-    setPresetsError(null);
     setMeasurementsError(null);
-    measurementPresetsService
-      .getList(subcategoryId, true)
-      .then((list) => {
+    try {
+      const list = await measurementsService.getList({ presetId: preset.id });
+      const sorted = sortMeasurements(list);
+      setMeasurements(sorted);
+      setPresets((prev) =>
+        prev.map((p) => (p.id === preset.id ? { ...p, measurements: sorted } : p))
+      );
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to load measurements';
+      setMeasurementsError(message);
+      setMeasurements([]);
+    } finally {
+      setMeasurementsLoading(false);
+    }
+  }, []);
+
+  const loadPresets = useCallback(
+    async (subcategoryId: string, keepPresetId?: string | null) => {
+      setPresetsLoading(true);
+      setMeasurementsLoading(true);
+      setPresetsError(null);
+      setMeasurementsError(null);
+      try {
+        const list = await measurementPresetsService.getList(subcategoryId, true);
         const sorted = sortPresets(list);
         setPresets(sorted);
         const defaultPreset = findDefaultPreset(sorted);
         const nextPreset = keepPresetId
           ? sorted.find((p) => p.id === keepPresetId) ?? defaultPreset ?? sorted[0] ?? null
           : defaultPreset ?? sorted[0] ?? null;
-        setSelectedPreset(nextPreset);
-        setMeasurements(nextPreset?.measurements ? sortMeasurements(nextPreset.measurements) : []);
-      })
-      .catch((e) => {
+
+        if (nextPreset) {
+          await loadMeasurementsForPreset(nextPreset);
+        } else {
+          setSelectedPreset(null);
+          setMeasurements([]);
+          setMeasurementsLoading(false);
+        }
+      } catch (e) {
         const message = e instanceof Error ? e.message : 'Failed to load size presets';
         setPresetsError(message);
         setMeasurementsError(message);
         setPresets([]);
         setSelectedPreset(null);
         setMeasurements([]);
-      })
-      .finally(() => {
-        setPresetsLoading(false);
         setMeasurementsLoading(false);
-      });
-  }, []);
+      } finally {
+        setPresetsLoading(false);
+      }
+    },
+    [loadMeasurementsForPreset]
+  );
 
   useEffect(() => {
     if (selectedSubCategory?.id) loadPresets(selectedSubCategory.id);
@@ -119,8 +145,8 @@ export function MeasurementsPage() {
   }, [selectedSubCategory?.id, loadPresets]);
 
   const handleSelectPreset = (preset: ApiMeasurementPreset) => {
-    setSelectedPreset(preset);
-    setMeasurements(preset.measurements ? sortMeasurements(preset.measurements) : []);
+    if (selectedPreset?.id === preset.id && !measurementsLoading) return;
+    loadMeasurementsForPreset(preset);
   };
 
   const openPresetDeleteDialog = (preset: ApiMeasurementPreset) => {
