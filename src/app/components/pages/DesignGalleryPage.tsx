@@ -25,6 +25,7 @@ export function DesignGalleryPage() {
   const [filterCategoryId, setFilterCategoryId] = useState('');
   const [filterSubcategoryId, setFilterSubcategoryId] = useState('');
   const [filterSubcategories, setFilterSubcategories] = useState<ApiTailorCategory[]>([]);
+  const [filterTag, setFilterTag] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>('');
@@ -104,7 +105,7 @@ export function DesignGalleryPage() {
         categoryId: filterCategoryId || undefined,
         subcategoryId: filterSubcategoryId || undefined,
       });
-      setDesigns(list);
+      setDesigns(Array.isArray(list) ? list : []);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Failed to load designs');
       setDesigns([]);
@@ -356,7 +357,17 @@ export function DesignGalleryPage() {
     setSyncingPinterest(false);
   };
 
+  const availableTags = Array.from(
+    new Set(
+      designs.flatMap((d) => (d.tags ?? []).map((t) => t.trim()).filter(Boolean))
+    )
+  ).sort((a, b) => a.localeCompare(b));
+
   const filteredDesigns = designs.filter((d) => {
+    if (filterTag) {
+      const designTags = (d.tags ?? []).map((t) => t.trim().toLowerCase());
+      if (!designTags.includes(filterTag.toLowerCase())) return false;
+    }
     const q = searchQuery.toLowerCase();
     if (!q) return true;
     const name = d.designName.toLowerCase();
@@ -397,7 +408,7 @@ export function DesignGalleryPage() {
 
   useEffect(() => {
     clearSelection();
-  }, [filterCategoryId, filterSubcategoryId]);
+  }, [filterCategoryId, filterSubcategoryId, filterTag]);
 
   return (
     <div className="space-y-6 dark:bg-gray-900">
@@ -432,8 +443,8 @@ export function DesignGalleryPage() {
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="relative md:col-span-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="relative lg:col-span-2">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" />
             <input
               type="text"
@@ -467,8 +478,18 @@ export function DesignGalleryPage() {
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
+          <select
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+            value={filterTag}
+            onChange={(e) => setFilterTag(e.target.value)}
+          >
+            <option value="">All Tags</option>
+            {availableTags.map((tag) => (
+              <option key={tag} value={tag}>{tag}</option>
+            ))}
+          </select>
         </div>
-        {(filterCategoryId || filterSubcategoryId || searchQuery) && (
+        {(filterCategoryId || filterSubcategoryId || filterTag || searchQuery) && (
           <div className="mt-3 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
             <Filter className="w-4 h-4" />
             <span>Showing {filteredDesigns.length} of {designs.length} designs</span>
@@ -476,6 +497,7 @@ export function DesignGalleryPage() {
               onClick={() => {
                 setFilterCategoryId('');
                 setFilterSubcategoryId('');
+                setFilterTag('');
                 setSearchQuery('');
               }}
               className="text-blue-600 dark:text-blue-400 hover:underline ml-2"

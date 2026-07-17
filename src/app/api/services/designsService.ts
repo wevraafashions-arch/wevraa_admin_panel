@@ -22,9 +22,20 @@ function buildListUrl(params?: ListDesignsParams): string {
   return `${DESIGNS_PATH}?${search.toString()}`;
 }
 
+type ListDesignsRaw = Design[] | { data?: Design[]; items?: Design[]; designs?: Design[] };
+
+function normalizeDesignList(raw: ListDesignsRaw): Design[] {
+  if (Array.isArray(raw)) return raw;
+  if (Array.isArray(raw.data)) return raw.data;
+  if (Array.isArray(raw.items)) return raw.items;
+  if (Array.isArray(raw.designs)) return raw.designs;
+  return [];
+}
+
 export const designsService = {
   async getList(params?: ListDesignsParams): Promise<Design[]> {
-    return apiClient<Design[]>(buildListUrl(params), { method: 'GET' });
+    const raw = await apiClient<ListDesignsRaw>(buildListUrl(params), { method: 'GET' });
+    return normalizeDesignList(raw);
   },
 
   async getById(id: string): Promise<Design> {
