@@ -11,22 +11,42 @@ interface DesignGalleryModalProps {
   maxSelection?: number;
 }
 
+const PAGE_LIMIT = 50;
+
 export function DesignGalleryModal({ isOpen, onClose, onSelect, maxSelection }: DesignGalleryModalProps) {
   const [designs, setDesigns] = useState<Design[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+
+  const loadPage = async (nextPage: number, append: boolean) => {
+    if (append) setLoadingMore(true);
+    else setLoading(true);
+    setError(null);
+    try {
+      const result = await designsService.getList({ page: nextPage, limit: PAGE_LIMIT });
+      const list = Array.isArray(result.data) ? result.data : [];
+      setDesigns((prev) => (append ? [...prev, ...list] : list));
+      setPage(result.page);
+      setTotalPages(result.totalPages);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Failed to load designs');
+      if (!append) setDesigns([]);
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  };
 
   useEffect(() => {
     if (isOpen) {
-      setLoading(true);
-      setError(null);
       setSelectedImages([]);
-      designsService
-        .getList()
-        .then(setDesigns)
-        .catch((e) => setError(e instanceof ApiError ? e.message : 'Failed to load designs'))
-        .finally(() => setLoading(false));
+      setPage(1);
+      setTotalPages(1);
+      loadPage(1, false);
     }
   }, [isOpen]);
 
@@ -87,36 +107,50 @@ export function DesignGalleryModal({ isOpen, onClose, onSelect, maxSelection }: 
           ) : designs.length === 0 ? (
             <p className="text-sm text-gray-500 dark:text-gray-400">No designs in the gallery yet.</p>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {designs.map((design) => {
-                const isSelected = selectedImages.includes(design.imageUrl);
-                return (
-                  <div
-                    key={design.id}
-                    onClick={() => toggleImageSelection(design.imageUrl)}
-                    className={`relative cursor-pointer rounded-lg overflow-hidden border-2 transition-all ${
-                      isSelected ? 'border-blue-500 shadow-lg' : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
-                    }`}
-                  >
-                    <img
-                      src={design.imageUrl}
-                      alt={design.designName}
-                      className="w-full h-32 object-cover"
-                    />
-                    <p className="p-2 text-xs text-gray-600 dark:text-gray-400 truncate" title={design.designName}>
-                      {design.designName}
-                    </p>
-                    {isSelected && (
-                      <div className="absolute inset-0 bg-blue-500 bg-opacity-20 flex items-center justify-center">
-                        <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
-                          <Check className="w-5 h-5 text-white" />
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                {designs.map((design) => {
+                  const isSelected = selectedImages.includes(design.imageUrl);
+                  return (
+                    <div
+                      key={design.id}
+                      onClick={() => toggleImageSelection(design.imageUrl)}
+                      className={`relative cursor-pointer rounded-lg overflow-hidden border-2 transition-all ${
+                        isSelected ? 'border-blue-500 shadow-lg' : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
+                      }`}
+                    >
+                      <img
+                        src={design.imageUrl}
+                        alt={design.designName}
+                        className="w-full h-32 object-cover"
+                      />
+                      <p className="p-2 text-xs text-gray-600 dark:text-gray-400 truncate" title={design.designName}>
+                        {design.designName}
+                      </p>
+                      {isSelected && (
+                        <div className="absolute inset-0 bg-blue-500 bg-opacity-20 flex items-center justify-center">
+                          <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+                            <Check className="w-5 h-5 text-white" />
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {page < totalPages && (
+                <div className="mt-6 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => loadPage(page + 1, true)}
+                    disabled={loadingMore}
+                    className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+                  >
+                    {loadingMore ? 'Loading…' : `Load more (page ${page + 1} of ${totalPages})`}
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
 

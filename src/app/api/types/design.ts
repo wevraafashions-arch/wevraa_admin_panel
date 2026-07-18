@@ -15,6 +15,25 @@ export interface Design {
   subcategory?: { id: string; name: string };
 }
 
+/** Shared page-based list shape for GET /designs */
+export interface PaginatedDesigns {
+  data: Design[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export interface ListDesignsParams {
+  categoryId?: string;
+  subcategoryId?: string;
+  /** Match any of these tags. Omit for all designs. */
+  tags?: string | string[];
+  page?: number;
+  /** Default 50, max 100 */
+  limit?: number;
+}
+
 /** Response from POST /designs and POST /designs/with-image */
 export interface CreateDesignsResponse {
   created: number;

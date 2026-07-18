@@ -52,9 +52,11 @@ export interface ListReviewsParams {
   limit?: number;
 }
 
-/** Paginated list response (if API returns one; otherwise we assume array) */
+/** Paginated list response from GET /reviews */
 export interface ListReviewsResponse {
   data?: ApiReview[];
   items?: ApiReview[];
   total?: number;
+  page?: number;
+  limit?: number;
 }

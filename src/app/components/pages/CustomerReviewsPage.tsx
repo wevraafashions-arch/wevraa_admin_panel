@@ -29,7 +29,8 @@ export function CustomerReviewsPage() {
   const [filterStatus, setFilterStatus] = useState<'All' | ReviewStatus>('All');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const limit = 20;
+  const [limit, setLimit] = useState(20);
+  const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50, 100] as const;
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [customers, setCustomers] = useState<ApiCustomer[]>([]);
@@ -460,27 +461,48 @@ export function CustomerReviewsPage() {
         </div>
       )}
 
-      {total > limit && (
-        <div className="flex justify-center gap-2">
-          <button
-            type="button"
-            disabled={page <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg disabled:opacity-50"
-          >
-            Previous
-          </button>
-          <span className="py-2 text-gray-600 dark:text-gray-400">
-            Page {page} of {Math.ceil(total / limit) || 1}
-          </span>
-          <button
-            type="button"
-            disabled={page >= Math.ceil(total / limit)}
-            onClick={() => setPage((p) => p + 1)}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg disabled:opacity-50"
-          >
-            Next
-          </button>
+      {total > 0 && (
+        <div className="flex justify-center items-center gap-3 flex-wrap">
+          <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+            <span>Per page</span>
+            <select
+              value={limit}
+              onChange={(e) => {
+                setLimit(Number(e.target.value));
+                setPage(1);
+              }}
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </label>
+          {total > limit && (
+            <>
+              <button
+                type="button"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <span className="py-2 text-gray-600 dark:text-gray-400">
+                Page {page} of {Math.ceil(total / limit) || 1}
+              </span>
+              <button
+                type="button"
+                disabled={page >= Math.ceil(total / limit)}
+                onClick={() => setPage((p) => p + 1)}
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg disabled:opacity-50"
+              >
+                Next
+              </button>
+            </>
+          )}
         </div>
       )}
 

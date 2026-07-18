@@ -11,6 +11,18 @@ import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
 
 const MAX_IMAGE_SIZE_MB = 10;
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
+const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50, 100] as const;
+const TAG_FILTER_OPTIONS = ['All', 'Back', 'Front', 'Sleeves'] as const;
+
+/** Send common case variants so backend `hasSome` matches case-insensitively. */
+function tagFilterQueryValues(tag: string): string[] {
+  const trimmed = tag.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'all') return [];
+  const lower = trimmed.toLowerCase();
+  const title = lower.charAt(0).toUpperCase() + lower.slice(1);
+  const upper = trimmed.toUpperCase();
+  return Array.from(new Set([trimmed, lower, title, upper]));
+}
 
 export function DesignGalleryPage() {
   const [designs, setDesigns] = useState<Design[]>([]);
@@ -27,6 +39,10 @@ export function DesignGalleryPage() {
   const [filterSubcategories, setFilterSubcategories] = useState<ApiTailorCategory[]>([]);
   const [filterTag, setFilterTag] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [limit, setLimit] = useState(50);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>('');
   const [dragActive, setDragActive] = useState(false);
@@ -101,14 +117,23 @@ export function DesignGalleryPage() {
     setLoading(true);
     setError(null);
     try {
-      const list = await designsService.getList({
+      const tagValues = tagFilterQueryValues(filterTag);
+      const result = await designsService.getList({
         categoryId: filterCategoryId || undefined,
         subcategoryId: filterSubcategoryId || undefined,
+        tags: tagValues.length ? tagValues : undefined,
+        page,
+        limit,
       });
-      setDesigns(Array.isArray(list) ? list : []);
+      const list = Array.isArray(result.data) ? result.data : [];
+      setDesigns(list);
+      setTotal(result.total);
+      setTotalPages(result.totalPages);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Failed to load designs');
       setDesigns([]);
+      setTotal(0);
+      setTotalPages(1);
     } finally {
       setLoading(false);
     }
@@ -120,7 +145,7 @@ export function DesignGalleryPage() {
 
   useEffect(() => {
     loadDesigns();
-  }, [filterCategoryId, filterSubcategoryId]);
+  }, [filterCategoryId, filterSubcategoryId, filterTag, page, limit]);
 
   useEffect(() => {
     loadSubcategories(formDesign.categoryId || null);
@@ -357,25 +382,18 @@ export function DesignGalleryPage() {
     setSyncingPinterest(false);
   };
 
-  const availableTags = Array.from(
-    new Set(
-      designs.flatMap((d) => (d.tags ?? []).map((t) => t.trim()).filter(Boolean))
-    )
-  ).sort((a, b) => a.localeCompare(b));
-
+  // Frontend-only: case-insensitive search on the current page of API results.
+  // Category, subcategory, tags dropdown, page, and limit are filtered by the backend.
   const filteredDesigns = designs.filter((d) => {
-    if (filterTag) {
-      const designTags = (d.tags ?? []).map((t) => t.trim().toLowerCase());
-      if (!designTags.includes(filterTag.toLowerCase())) return false;
-    }
-    const q = searchQuery.toLowerCase();
+    const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
-    const name = d.designName.toLowerCase();
-    const desc = (d.description || '').toLowerCase();
-    const cat = (d.category?.name ?? '').toLowerCase();
-    const sub = (d.subcategory?.name ?? '').toLowerCase();
-    const tagsStr = (d.tags ?? []).join(' ').toLowerCase();
-    return name.includes(q) || desc.includes(q) || cat.includes(q) || sub.includes(q) || tagsStr.includes(q);
+    return (
+      d.designName.toLowerCase().includes(q) ||
+      (d.description || '').toLowerCase().includes(q) ||
+      (d.category?.name ?? '').toLowerCase().includes(q) ||
+      (d.subcategory?.name ?? '').toLowerCase().includes(q) ||
+      (d.tags ?? []).some((tag) => tag.toLowerCase().includes(q))
+    );
   });
 
   const selectedCount = selectedIds.size;
@@ -408,7 +426,7 @@ export function DesignGalleryPage() {
 
   useEffect(() => {
     clearSelection();
-  }, [filterCategoryId, filterSubcategoryId, filterTag]);
+  }, [filterCategoryId, filterSubcategoryId, filterTag, page, limit]);
 
   return (
     <div className="space-y-6 dark:bg-gray-900">
@@ -448,7 +466,7 @@ export function DesignGalleryPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" />
             <input
               type="text"
-              placeholder="Search by name, category, subcategory, or tags..."
+              placeholder="Search this page by name, category, subcategory, or tags..."
               className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -460,6 +478,7 @@ export function DesignGalleryPage() {
             onChange={(e) => {
               setFilterCategoryId(e.target.value);
               setFilterSubcategoryId('');
+              setPage(1);
             }}
           >
             <option value="">All Categories</option>
@@ -470,7 +489,10 @@ export function DesignGalleryPage() {
           <select
             className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-900 disabled:cursor-not-allowed"
             value={filterSubcategoryId}
-            onChange={(e) => setFilterSubcategoryId(e.target.value)}
+            onChange={(e) => {
+              setFilterSubcategoryId(e.target.value);
+              setPage(1);
+            }}
             disabled={!filterCategoryId}
           >
             <option value="">All Sub-Categories</option>
@@ -480,25 +502,36 @@ export function DesignGalleryPage() {
           </select>
           <select
             className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            value={filterTag}
-            onChange={(e) => setFilterTag(e.target.value)}
+            value={filterTag || 'All'}
+            onChange={(e) => {
+              const value = e.target.value;
+              setFilterTag(value === 'All' ? '' : value);
+              setPage(1);
+            }}
+            aria-label="Filter by tag"
           >
-            <option value="">All Tags</option>
-            {availableTags.map((tag) => (
-              <option key={tag} value={tag}>{tag}</option>
+            {TAG_FILTER_OPTIONS.map((tag) => (
+              <option key={tag} value={tag}>
+                {tag}
+              </option>
             ))}
           </select>
         </div>
         {(filterCategoryId || filterSubcategoryId || filterTag || searchQuery) && (
           <div className="mt-3 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
             <Filter className="w-4 h-4" />
-            <span>Showing {filteredDesigns.length} of {designs.length} designs</span>
+            <span>
+              Showing {filteredDesigns.length} on this page
+              {total > 0 ? ` · ${total} total` : ''}
+              {filterTag ? ` · tag: ${filterTag}` : ''}
+            </span>
             <button
               onClick={() => {
                 setFilterCategoryId('');
                 setFilterSubcategoryId('');
                 setFilterTag('');
                 setSearchQuery('');
+                setPage(1);
               }}
               className="text-blue-600 dark:text-blue-400 hover:underline ml-2"
             >
@@ -646,6 +679,55 @@ export function DesignGalleryPage() {
       {!loading && filteredDesigns.length === 0 && (
         <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg">
           <p className="text-gray-500 dark:text-gray-400">No designs found</p>
+        </div>
+      )}
+
+      {!loading && (total > 0 || totalPages > 1) && (
+        <div className="flex items-center justify-center gap-3 flex-wrap">
+          <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+            <span>Per page</span>
+            <select
+              value={limit}
+              onChange={(e) => {
+                setLimit(Number(e.target.value));
+                setPage(1);
+              }}
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </label>
+          {totalPages > 1 && (
+            <>
+              <button
+                type="button"
+                disabled={page <= 1 || loading}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <span className="text-sm text-gray-600 dark:text-gray-400">
+                Page {page} of {totalPages}
+                {total > 0 ? ` · ${total} designs` : ''}
+              </span>
+              <button
+                type="button"
+                disabled={page >= totalPages || loading}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+              >
+                Next
+              </button>
+            </>
+          )}
+          {totalPages <= 1 && total > 0 && (
+            <span className="text-sm text-gray-600 dark:text-gray-400">{total} designs</span>
+          )}
         </div>
       )}
 

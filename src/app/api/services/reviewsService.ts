@@ -25,14 +25,39 @@ export const reviewsService = {
     return apiClient<ReviewStats>(`${REVIEWS_PATH}/stats`, { method: 'GET' });
   },
 
-  async getList(params: ListReviewsParams = {}): Promise<{ items: ApiReview[]; total?: number }> {
+  async getList(params: ListReviewsParams = {}): Promise<{
+    items: ApiReview[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  }> {
     const url = `${REVIEWS_PATH}${buildListQuery(params)}`;
     const raw = await apiClient<ApiReview[] | ListReviewsResponse>(url, { method: 'GET' });
+    const page = params.page ?? 1;
+    const limit = params.limit ?? 20;
+
     if (Array.isArray(raw)) {
-      return { items: raw };
+      return {
+        items: raw,
+        total: raw.length,
+        page: 1,
+        limit: raw.length || limit,
+        totalPages: 1,
+      };
     }
+
     const items = raw.data ?? raw.items ?? [];
-    return { items, total: raw.total };
+    const total = typeof raw.total === 'number' ? raw.total : items.length;
+    const resolvedPage = typeof raw.page === 'number' ? raw.page : page;
+    const resolvedLimit = typeof raw.limit === 'number' ? raw.limit : limit;
+    return {
+      items,
+      total,
+      page: resolvedPage,
+      limit: resolvedLimit,
+      totalPages: Math.max(1, Math.ceil(total / (resolvedLimit || 1))),
+    };
   },
 
   async getById(id: string): Promise<ApiReview> {
