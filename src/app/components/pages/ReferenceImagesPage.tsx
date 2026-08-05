@@ -5,6 +5,7 @@ import { referenceImagesService } from '../../api/services/referenceImagesServic
 import type { ReferenceImage, ReferenceImageType } from '../../api/types/referenceImage';
 import { ApiError } from '../../api/client';
 import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
+import { convertImageFileToWebP } from '../../utils/convertImageToWebP';
 
 const MAX_IMAGE_SIZE_MB = 10;
 const MAX_BULK_FILES = 50;
@@ -52,6 +53,7 @@ function ReferenceImageGallery({ type, title, description }: ReferenceImageGalle
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [uploadLabel, setUploadLabel] = useState('');
   const [dragActive, setDragActive] = useState(false);
+  const [convertingImages, setConvertingImages] = useState(false);
   const [uploading, setUploading] = useState(false);
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -120,9 +122,10 @@ function ReferenceImageGallery({ type, title, description }: ReferenceImageGalle
     setUploadFiles([]);
     setUploadLabel('');
     setDragActive(false);
+    setConvertingImages(false);
   };
 
-  const addFiles = (incoming: FileList | File[]) => {
+  const addFiles = async (incoming: FileList | File[]) => {
     const fileArray = Array.from(incoming);
     if (!fileArray.length) return;
 
@@ -144,14 +147,35 @@ function ReferenceImageGallery({ type, title, description }: ReferenceImageGalle
 
     if (!valid.length) return;
 
-    setUploadFiles((prev) => {
-      const combined = [...prev, ...valid];
-      if (combined.length > MAX_BULK_FILES) {
-        toast.error(`You can upload up to ${MAX_BULK_FILES} images at once`);
-        return combined.slice(0, MAX_BULK_FILES);
+    setConvertingImages(true);
+    try {
+      const results = await Promise.allSettled(valid.map((file) => convertImageFileToWebP(file)));
+      const converted: File[] = [];
+      let failed = 0;
+      for (const result of results) {
+        if (result.status === 'fulfilled') converted.push(result.value);
+        else failed += 1;
       }
-      return combined;
-    });
+      if (failed > 0) {
+        toast.error(
+          failed === 1
+            ? 'Could not convert 1 image to WebP. Try another file.'
+            : `Could not convert ${failed} images to WebP.`
+        );
+      }
+      if (!converted.length) return;
+
+      setUploadFiles((prev) => {
+        const combined = [...prev, ...converted];
+        if (combined.length > MAX_BULK_FILES) {
+          toast.error(`You can upload up to ${MAX_BULK_FILES} images at once`);
+          return combined.slice(0, MAX_BULK_FILES);
+        }
+        return combined;
+      });
+    } finally {
+      setConvertingImages(false);
+    }
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -165,7 +189,8 @@ function ReferenceImageGallery({ type, title, description }: ReferenceImageGalle
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
+    if (convertingImages || uploading) return;
+    if (e.dataTransfer.files?.length) void addFiles(e.dataTransfer.files);
   };
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -187,7 +212,7 @@ function ReferenceImageGallery({ type, title, description }: ReferenceImageGalle
     try {
       if (uploadFiles.length === 1) {
         const formData = new FormData();
-        formData.append('image', uploadFiles[0]);
+        formData.append('image', uploadFiles[0], uploadFiles[0].name);
         formData.append('type', type);
         if (uploadLabel.trim()) formData.append('label', uploadLabel.trim());
         await referenceImagesService.createWithImage(formData);
@@ -195,7 +220,7 @@ function ReferenceImageGallery({ type, title, description }: ReferenceImageGalle
       } else {
         const formData = new FormData();
         formData.append('type', type);
-        uploadFiles.forEach((file) => formData.append('images', file));
+        uploadFiles.forEach((file) => formData.append('images', file, file.name));
         const result = await referenceImagesService.bulkUploadWithImage(formData);
         if (result.created > 0) {
           toast.success(`${result.created} image(s) uploaded`);
@@ -451,20 +476,31 @@ function ReferenceImageGallery({ type, title, description }: ReferenceImageGalle
                 onDragLeave={handleDrag}
                 onDragOver={handleDrag}
                 onDrop={handleDrop}
-                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
                   dragActive
                     ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                     : 'border-gray-300 dark:border-gray-600'
-                }`}
+                } ${convertingImages || uploading ? 'pointer-events-none opacity-70' : ''}`}
               >
+                {convertingImages && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-lg bg-white/90 dark:bg-gray-900/90">
+                    <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                    <span className="text-sm text-gray-700 dark:text-gray-300">Converting to WebP…</span>
+                  </div>
+                )}
                 <Upload className="w-10 h-10 text-gray-400 mx-auto mb-3" />
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
                   Drag and drop images here, or click to browse
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-500 mb-4">
-                  JPG, PNG, GIF, WebP — up to {MAX_BULK_FILES} files, {MAX_IMAGE_SIZE_MB}MB each
+                  JPG, PNG, GIF, or WebP (max {MAX_IMAGE_SIZE_MB}MB each) — saved as WebP. Up to {MAX_BULK_FILES}{' '}
+                  files.
                 </p>
-                <label className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer transition-colors">
+                <label
+                  className={`inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors ${
+                    convertingImages || uploading ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                  }`}
+                >
                   <Plus className="w-4 h-4" />
                   Select files
                   <input
@@ -473,6 +509,7 @@ function ReferenceImageGallery({ type, title, description }: ReferenceImageGalle
                     multiple
                     className="hidden"
                     onChange={handleFileInput}
+                    disabled={convertingImages || uploading}
                   />
                 </label>
               </div>
@@ -492,7 +529,8 @@ function ReferenceImageGallery({ type, title, description }: ReferenceImageGalle
                         <button
                           type="button"
                           onClick={() => removeUploadFile(index)}
-                          className="shrink-0 text-gray-500 hover:text-red-600"
+                          disabled={convertingImages || uploading}
+                          className="shrink-0 text-gray-500 hover:text-red-600 disabled:opacity-40"
                           aria-label={`Remove ${file.name}`}
                         >
                           <X className="w-4 h-4" />
@@ -523,7 +561,7 @@ function ReferenceImageGallery({ type, title, description }: ReferenceImageGalle
               <button
                 type="button"
                 onClick={resetUploadModal}
-                disabled={uploading}
+                disabled={uploading || convertingImages}
                 className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
               >
                 Cancel
@@ -531,11 +569,17 @@ function ReferenceImageGallery({ type, title, description }: ReferenceImageGalle
               <button
                 type="button"
                 onClick={handleUpload}
-                disabled={uploading || uploadFiles.length === 0}
+                disabled={uploading || convertingImages || uploadFiles.length === 0}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
               >
-                {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                Upload {uploadFiles.length > 1 ? `(${uploadFiles.length})` : ''}
+                {uploading || convertingImages ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Upload className="w-4 h-4" />
+                )}
+                {convertingImages
+                  ? 'Converting…'
+                  : `Upload ${uploadFiles.length > 1 ? `(${uploadFiles.length})` : ''}`}
               </button>
             </div>
           </div>

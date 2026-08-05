@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus, Search, Heart, X, Upload, Copy, Filter, Trash2, Edit, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { designsService } from '../../api/services/designsService';
@@ -8,9 +8,10 @@ import { showCreateDesignsToast } from '../../api/types/design';
 import type { ApiTailorCategory } from '../../api/types/tailorCategory';
 import { ApiError } from '../../api/client';
 import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
+import { convertImageFileToWebP } from '../../utils/convertImageToWebP';
 
 const MAX_IMAGE_SIZE_MB = 10;
-const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
 const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50, 100] as const;
 const TAG_FILTER_OPTIONS = ['All', 'Back', 'Front', 'Sleeves'] as const;
 
@@ -45,7 +46,9 @@ export function DesignGalleryPage() {
   const [limit, setLimit] = useState(50);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>('');
+  const previewBlobUrlRef = useRef<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [convertingImage, setConvertingImage] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [syncingPinterest, setSyncingPinterest] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -82,7 +85,22 @@ export function DesignGalleryPage() {
     }
   };
 
+  const revokePreviewBlobUrl = () => {
+    if (previewBlobUrlRef.current) {
+      URL.revokeObjectURL(previewBlobUrlRef.current);
+      previewBlobUrlRef.current = null;
+    }
+  };
+
+  const setPreviewFromUploadFile = (file: File) => {
+    revokePreviewBlobUrl();
+    const url = URL.createObjectURL(file);
+    previewBlobUrlRef.current = url;
+    setImagePreview(url);
+  };
+
   const clearImageSource = () => {
+    revokePreviewBlobUrl();
     setImageFile(null);
     setImagePreview('');
   };
@@ -178,9 +196,9 @@ export function DesignGalleryPage() {
     if (e.target.files?.[0]) handleFile(e.target.files[0]);
   };
 
-  const handleFile = (file: File) => {
+  const handleFile = async (file: File) => {
     if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-      toast.error('Please upload a JPG, PNG or GIF image');
+      toast.error('Please upload a JPG, PNG, GIF, or WebP image');
       return;
     }
     if (file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
@@ -188,15 +206,22 @@ export function DesignGalleryPage() {
       return;
     }
     clearPinterestSource();
-    setImageFile(file);
-    const reader = new FileReader();
-    reader.onloadend = () => setImagePreview(reader.result as string);
-    reader.readAsDataURL(file);
+    setConvertingImage(true);
+    try {
+      const webpFile = await convertImageFileToWebP(file);
+      setImageFile(webpFile);
+      setPreviewFromUploadFile(webpFile);
+    } catch {
+      toast.error('Could not convert image to WebP. Try another file.');
+      clearImageSource();
+    } finally {
+      setConvertingImage(false);
+    }
   };
 
   const buildImageFormData = (): FormData => {
     const fd = new FormData();
-    if (imageFile) fd.append('image', imageFile);
+    if (imageFile) fd.append('image', imageFile, imageFile.name);
     fd.append('designName', formDesign.designName.trim());
     fd.append('description', formDesign.description);
     fd.append('categoryId', formDesign.categoryId.trim());
@@ -293,6 +318,7 @@ export function DesignGalleryPage() {
       pinterestBoardUrl: '',
     });
     setImageFile(null);
+    revokePreviewBlobUrl();
     setImagePreview(design.imageUrl);
     setShowAddModal(true);
     loadSubcategories(design.categoryId);
@@ -377,8 +403,10 @@ export function DesignGalleryPage() {
       subcategoryId: '',
       pinterestBoardUrl: '',
     });
+    revokePreviewBlobUrl();
     setImageFile(null);
     setImagePreview('');
+    setConvertingImage(false);
     setSyncingPinterest(false);
   };
 
@@ -833,8 +861,14 @@ export function DesignGalleryPage() {
                       onDragLeave={hasPinterestSource ? undefined : handleDrag}
                       onDragOver={hasPinterestSource ? undefined : handleDrag}
                       onDrop={hasPinterestSource ? undefined : handleDrop}
-                      onClick={() => !hasPinterestSource && document.getElementById('designFileInput')?.click()}
+                      onClick={() => !hasPinterestSource && !convertingImage && document.getElementById('designFileInput')?.click()}
                     >
+                      {convertingImage && (
+                        <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-lg bg-white/90 dark:bg-gray-900/90">
+                          <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                          <span className="text-sm text-gray-700 dark:text-gray-300">Converting to WebP…</span>
+                        </div>
+                      )}
                       {imagePreview ? (
                         <div className="space-y-4">
                           <div className="relative w-full h-64 rounded-lg overflow-hidden">
@@ -851,7 +885,9 @@ export function DesignGalleryPage() {
                             </button>
                           </div>
                           <p className="text-sm text-green-700 dark:text-green-400 font-medium">✓ Image ready</p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">One image only — JPG/PNG/GIF, max 10MB</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                            One image — JPG, PNG, GIF, or WebP (max {MAX_IMAGE_SIZE_MB}MB), saved as WebP
+                          </p>
                         </div>
                       ) : (
                         <div className="space-y-3">
@@ -861,16 +897,17 @@ export function DesignGalleryPage() {
                             </div>
                           </div>
                           <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Drop one image here or click to browse</p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">Creates exactly 1 design</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">JPG, PNG, GIF, or WebP — saved as WebP</p>
                         </div>
                       )}
                     </div>
                     <input
                       id="designFileInput"
                       type="file"
-                      accept="image/jpeg,image/jpg,image/png,image/gif"
+                      accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
                       onChange={handleFileInput}
                       className="hidden"
+                      disabled={convertingImage}
                     />
                   </div>
 
@@ -916,8 +953,14 @@ export function DesignGalleryPage() {
                     onDragLeave={handleDrag}
                     onDragOver={handleDrag}
                     onDrop={handleDrop}
-                    onClick={() => document.getElementById('designEditFileInput')?.click()}
+                    onClick={() => !convertingImage && document.getElementById('designEditFileInput')?.click()}
                   >
+                    {convertingImage && (
+                      <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-lg bg-white/90 dark:bg-gray-900/90">
+                        <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                        <span className="text-sm text-gray-700 dark:text-gray-300">Converting to WebP…</span>
+                      </div>
+                    )}
                     {imagePreview ? (
                       <div className="space-y-4">
                         <div className="relative w-full h-64 rounded-lg overflow-hidden">
@@ -927,6 +970,7 @@ export function DesignGalleryPage() {
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
+                                revokePreviewBlobUrl();
                                 setImageFile(null);
                                 setImagePreview(designs.find((d) => d.id === editingDesignId)?.imageUrl ?? '');
                               }}
@@ -937,7 +981,9 @@ export function DesignGalleryPage() {
                           )}
                         </div>
                         <p className="text-xs text-gray-500 dark:text-gray-400">
-                          {imageFile ? 'New image will replace the current one' : 'Current design image'}
+                          {imageFile
+                            ? 'New WebP image will replace the current one'
+                            : 'Current design image — upload JPG, PNG, GIF, or WebP to replace'}
                         </p>
                       </div>
                     ) : (
@@ -949,9 +995,10 @@ export function DesignGalleryPage() {
                   <input
                     id="designEditFileInput"
                     type="file"
-                    accept="image/jpeg,image/jpg,image/png,image/gif"
+                    accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
                     onChange={handleFileInput}
                     className="hidden"
+                    disabled={convertingImage}
                   />
                 </div>
               )}
@@ -967,7 +1014,7 @@ export function DesignGalleryPage() {
             <div className="sticky bottom-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-end gap-3">
               <button
                 onClick={resetModal}
-                disabled={submitting}
+                disabled={submitting || convertingImage}
                 className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
               >
                 Cancel
@@ -976,6 +1023,7 @@ export function DesignGalleryPage() {
                 onClick={isEditMode ? handleUpdateDesign : handleAddDesign}
                 disabled={
                   submitting ||
+                  convertingImage ||
                   !formDesign.designName.trim() ||
                   !formDesign.categoryId ||
                   !formDesign.subcategoryId ||
@@ -983,14 +1031,16 @@ export function DesignGalleryPage() {
                 }
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2"
               >
-                {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                {submitting
-                  ? syncingPinterest
-                    ? 'Syncing…'
-                    : 'Saving…'
-                  : isEditMode
-                    ? 'Update Design'
-                    : 'Add Design'}
+                {(submitting || convertingImage) && <Loader2 className="w-4 h-4 animate-spin" />}
+                {convertingImage
+                  ? 'Converting…'
+                  : submitting
+                    ? syncingPinterest
+                      ? 'Syncing…'
+                      : 'Saving…'
+                    : isEditMode
+                      ? 'Update Design'
+                      : 'Add Design'}
               </button>
             </div>
           </div>

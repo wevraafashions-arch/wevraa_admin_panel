@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Upload,
   Image as ImageIcon,
@@ -14,15 +14,18 @@ import {
   List,
   Calendar,
   X,
+  Loader2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { ConfirmDeleteDialog } from '../ui/ConfirmDeleteDialog';
 import { galleryService } from '../../api/services/galleryService';
 import { tailorCategoriesService } from '../../api/services/tailorCategoriesService';
 import type { GalleryImage } from '../../api/types/gallery';
 import type { ApiTailorCategory } from '../../api/types/tailorCategory';
 import { ApiError } from '../../api/client';
+import { convertImageFileToWebP } from '../../utils/convertImageToWebP';
 
-const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
 const MAX_IMAGE_SIZE_MB = 10;
 
 export function TailorGalleryPage() {
@@ -60,6 +63,55 @@ export function TailorGalleryPage() {
 
   const [editImageFile, setEditImageFile] = useState<File | null>(null);
   const [editImagePreview, setEditImagePreview] = useState<string>('');
+  const [convertingImage, setConvertingImage] = useState(false);
+  const newPreviewBlobRef = useRef<string | null>(null);
+  const editPreviewBlobRef = useRef<string | null>(null);
+
+  const revokeNewPreviewBlob = () => {
+    if (newPreviewBlobRef.current) {
+      URL.revokeObjectURL(newPreviewBlobRef.current);
+      newPreviewBlobRef.current = null;
+    }
+  };
+
+  const revokeEditPreviewBlob = () => {
+    if (editPreviewBlobRef.current) {
+      URL.revokeObjectURL(editPreviewBlobRef.current);
+      editPreviewBlobRef.current = null;
+    }
+  };
+
+  const emptyNewImageState = () => ({
+    imageFile: null as File | null,
+    imagePreview: '',
+    title: '',
+    description: '',
+    categoryId: categories[0]?.id ?? '',
+    subcategoryId: '',
+    tags: '',
+    isPublic: false,
+  });
+
+  const resetNewImageForm = () => {
+    revokeNewPreviewBlob();
+    setNewImage(emptyNewImageState());
+    setConvertingImage(false);
+  };
+
+  const setNewImagePreviewFromFile = (file: File) => {
+    revokeNewPreviewBlob();
+    const url = URL.createObjectURL(file);
+    newPreviewBlobRef.current = url;
+    setNewImage((prev) => ({ ...prev, imageFile: file, imagePreview: url }));
+  };
+
+  const setEditImagePreviewFromFile = (file: File) => {
+    revokeEditPreviewBlob();
+    const url = URL.createObjectURL(file);
+    editPreviewBlobRef.current = url;
+    setEditImageFile(file);
+    setEditImagePreview(url);
+  };
 
   useEffect(() => {
     tailorCategoriesService.getList().then((list) => setCategories(list.filter((c) => !c.parentId)));
@@ -103,21 +155,50 @@ export function TailorGalleryPage() {
     loadImages();
   }, [filterCategoryId, filterSubcategoryId]);
 
-  const handleNewImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleNewImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
     if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-      alert('Please upload a JPG, PNG or GIF image');
+      alert('Please upload a JPG, PNG, GIF, or WebP image');
       return;
     }
     if (file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
       alert(`Image must be under ${MAX_IMAGE_SIZE_MB}MB`);
       return;
     }
-    setNewImage((prev) => ({ ...prev, imageFile: file, imagePreview: '' }));
-    const reader = new FileReader();
-    reader.onloadend = () => setNewImage((prev) => ({ ...prev, imagePreview: reader.result as string }));
-    reader.readAsDataURL(file);
+    setConvertingImage(true);
+    try {
+      const webpFile = await convertImageFileToWebP(file);
+      setNewImagePreviewFromFile(webpFile);
+    } catch {
+      toast.error('Could not convert image to WebP. Try another file.');
+    } finally {
+      setConvertingImage(false);
+    }
+  };
+
+  const handleEditImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      alert('Please upload a JPG, PNG, GIF, or WebP image');
+      return;
+    }
+    if (file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
+      alert(`Image must be under ${MAX_IMAGE_SIZE_MB}MB`);
+      return;
+    }
+    setConvertingImage(true);
+    try {
+      const webpFile = await convertImageFileToWebP(file);
+      setEditImagePreviewFromFile(webpFile);
+    } catch {
+      toast.error('Could not convert image to WebP. Try another file.');
+    } finally {
+      setConvertingImage(false);
+    }
   };
 
   const handleAddImage = async () => {
@@ -136,7 +217,7 @@ export function TailorGalleryPage() {
     setSubmitting(true);
     try {
       const formData = new FormData();
-      formData.append('image', newImage.imageFile);
+      formData.append('image', newImage.imageFile, newImage.imageFile.name);
       formData.append('title', newImage.title);
       formData.append('description', newImage.description);
       formData.append('categoryId', newImage.categoryId);
@@ -146,16 +227,7 @@ export function TailorGalleryPage() {
       await galleryService.createWithImage(formData);
       await loadImages();
       setShowUploadModal(false);
-      setNewImage({
-        imageFile: null,
-        imagePreview: '',
-        title: '',
-        description: '',
-        categoryId: categories[0]?.id ?? '',
-        subcategoryId: '',
-        tags: '',
-        isPublic: false,
-      });
+      resetNewImageForm();
     } catch (e) {
       alert(e instanceof ApiError ? e.message : 'Failed to upload image');
     } finally {
@@ -164,6 +236,7 @@ export function TailorGalleryPage() {
   };
 
   const openEditModal = (image: GalleryImage) => {
+    revokeEditPreviewBlob();
     setSelectedImage(image);
     setEditImageFile(null);
     setEditImagePreview(image.imageUrl);
@@ -181,7 +254,7 @@ export function TailorGalleryPage() {
     try {
       if (editImageFile) {
         const formData = new FormData();
-        formData.append('image', editImageFile);
+        formData.append('image', editImageFile, editImageFile.name);
         formData.append('title', selectedImage.title);
         formData.append('description', selectedImage.description || '');
         formData.append('categoryId', selectedImage.categoryId);
@@ -200,6 +273,9 @@ export function TailorGalleryPage() {
         });
       }
       await loadImages();
+      revokeEditPreviewBlob();
+      setEditImageFile(null);
+      setEditImagePreview('');
       setShowEditModal(false);
       setSelectedImage(null);
     } catch (e) {
@@ -596,16 +672,7 @@ export function TailorGalleryPage() {
               <button
                 onClick={() => {
                   setShowUploadModal(false);
-                  setNewImage({
-                    imageFile: null,
-                    imagePreview: '',
-                    title: '',
-                    description: '',
-                    categoryId: categories[0]?.id ?? '',
-                    subcategoryId: '',
-                    tags: '',
-                    isPublic: false,
-                  });
+                  resetNewImageForm();
                 }}
                 className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
               >
@@ -618,23 +685,41 @@ export function TailorGalleryPage() {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Image <span className="text-red-500">*</span>
                 </label>
-                <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6">
+                <div className="relative border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6">
+                  {convertingImage && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-lg bg-white/90 dark:bg-gray-900/90">
+                      <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                      <span className="text-sm text-gray-700 dark:text-gray-300">Converting to WebP…</span>
+                    </div>
+                  )}
                   {newImage.imagePreview || newImage.imageFile ? (
                     <div className="relative">
-                      <img src={newImage.imagePreview || (newImage.imageFile && URL.createObjectURL(newImage.imageFile))} alt="Preview" className="w-full h-48 object-cover rounded-lg" />
+                      <img src={newImage.imagePreview} alt="Preview" className="w-full h-48 object-cover rounded-lg" />
                       <button
                         type="button"
-                        onClick={() => setNewImage((p) => ({ ...p, imageFile: null, imagePreview: '' }))}
-                        className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                        onClick={() => {
+                          revokeNewPreviewBlob();
+                          setNewImage((p) => ({ ...p, imageFile: null, imagePreview: '' }));
+                        }}
+                        disabled={convertingImage}
+                        className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   ) : (
-                    <label className="flex flex-col items-center cursor-pointer">
+                    <label className={`flex flex-col items-center ${convertingImage ? 'pointer-events-none opacity-60' : 'cursor-pointer'}`}>
                       <Upload className="w-12 h-12 text-gray-400 dark:text-gray-600 mb-2" />
-                      <span className="text-sm text-gray-600 dark:text-gray-400">Click to upload image (JPG/PNG/GIF, max 10MB)</span>
-                      <input type="file" accept="image/jpeg,image/jpg,image/png,image/gif" onChange={handleNewImageFile} className="hidden" />
+                      <span className="text-sm text-gray-600 dark:text-gray-400 text-center">
+                        JPG, PNG, GIF, or WebP (max {MAX_IMAGE_SIZE_MB}MB) — saved as WebP
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                        onChange={handleNewImageFile}
+                        className="hidden"
+                        disabled={convertingImage}
+                      />
                     </label>
                   )}
                 </div>
@@ -720,17 +805,29 @@ export function TailorGalleryPage() {
 
             <div className="border-t border-gray-200 dark:border-gray-700 px-6 py-4 flex justify-end gap-3">
               <button
-                onClick={() => setShowUploadModal(false)}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+                onClick={() => {
+                  setShowUploadModal(false);
+                  resetNewImageForm();
+                }}
+                disabled={convertingImage || submitting}
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 onClick={handleAddImage}
-                disabled={submitting || !newImage.imageFile || !newImage.title.trim() || !newImage.categoryId || !newImage.subcategoryId}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                disabled={
+                  submitting ||
+                  convertingImage ||
+                  !newImage.imageFile ||
+                  !newImage.title.trim() ||
+                  !newImage.categoryId ||
+                  !newImage.subcategoryId
+                }
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
               >
-                {submitting ? 'Uploading…' : 'Upload Image'}
+                {(submitting || convertingImage) && <Loader2 className="w-4 h-4 animate-spin" />}
+                {convertingImage ? 'Converting…' : submitting ? 'Uploading…' : 'Upload Image'}
               </button>
             </div>
           </div>
@@ -743,7 +840,17 @@ export function TailorGalleryPage() {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between">
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Edit Image</h2>
-              <button onClick={() => { setShowEditModal(false); setSelectedImage(null); }} className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+              <button
+                onClick={() => {
+                  revokeEditPreviewBlob();
+                  setShowEditModal(false);
+                  setSelectedImage(null);
+                  setEditImageFile(null);
+                  setEditImagePreview('');
+                  setConvertingImage(false);
+                }}
+                className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -751,22 +858,49 @@ export function TailorGalleryPage() {
             <div className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Image (optional: choose new file to replace)</label>
-                <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6">
+                <div className="relative border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6">
+                  {convertingImage && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-lg bg-white/90 dark:bg-gray-900/90">
+                      <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                      <span className="text-sm text-gray-700 dark:text-gray-300">Converting to WebP…</span>
+                    </div>
+                  )}
                   {editImagePreview ? (
                     <div className="relative">
                       <img src={editImagePreview} alt="Preview" className="w-full h-48 object-cover rounded-lg" />
-                      <button type="button" onClick={() => { setEditImageFile(null); setEditImagePreview(selectedImage.imageUrl); }} className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-lg hover:bg-red-600">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {editImageFile && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            revokeEditPreviewBlob();
+                            setEditImageFile(null);
+                            setEditImagePreview(selectedImage.imageUrl);
+                          }}
+                          disabled={convertingImage}
+                          className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   ) : (
                     <div className="relative">
                       <img src={selectedImage.imageUrl} alt={selectedImage.title} className="w-full h-48 object-cover rounded-lg" />
                     </div>
                   )}
-                  <label className="mt-2 inline-block text-sm text-blue-600 dark:text-blue-400 cursor-pointer">
-                    Change image
-                    <input type="file" accept="image/jpeg,image/jpg,image/png,image/gif" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f && ALLOWED_IMAGE_TYPES.includes(f.type)) { setEditImageFile(f); const r = new FileReader(); r.onloadend = () => setEditImagePreview(r.result as string); r.readAsDataURL(f); } }} />
+                  <label
+                    className={`mt-2 inline-flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 ${
+                      convertingImage ? 'pointer-events-none opacity-60' : 'cursor-pointer'
+                    }`}
+                  >
+                    Change image (saved as WebP)
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                      className="hidden"
+                      onChange={handleEditImageFile}
+                      disabled={convertingImage}
+                    />
                   </label>
                 </div>
               </div>
@@ -846,11 +980,27 @@ export function TailorGalleryPage() {
             </div>
 
             <div className="border-t border-gray-200 dark:border-gray-700 px-6 py-4 flex justify-end gap-3">
-              <button onClick={() => { setShowEditModal(false); setSelectedImage(null); }} className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+              <button
+                onClick={() => {
+                  revokeEditPreviewBlob();
+                  setShowEditModal(false);
+                  setSelectedImage(null);
+                  setEditImageFile(null);
+                  setEditImagePreview('');
+                  setConvertingImage(false);
+                }}
+                disabled={submitting || convertingImage}
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+              >
                 Cancel
               </button>
-              <button onClick={handleUpdateImage} disabled={submitting} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                {submitting ? 'Saving…' : 'Save Changes'}
+              <button
+                onClick={handleUpdateImage}
+                disabled={submitting || convertingImage}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+              >
+                {(submitting || convertingImage) && <Loader2 className="w-4 h-4 animate-spin" />}
+                {convertingImage ? 'Converting…' : submitting ? 'Saving…' : 'Save Changes'}
               </button>
             </div>
           </div>
